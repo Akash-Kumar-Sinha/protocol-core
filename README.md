@@ -1,0 +1,54 @@
+# protocol-core
+
+Solana on-chain programs for the IAM Protocol. Three Anchor programs handle identity minting, ZK proof verification, and protocol governance.
+
+## Programs
+
+**iam-anchor** — Non-transferable identity token. Creates a Token-2022 mint with the NonTransferable extension, mints one token per user, and manages an IdentityState PDA that tracks verification history and Trust Score.
+
+**iam-verifier** — ZK proof verification. Accepts Groth16 proofs and public inputs, verifies them on-chain, and manages challenge nonces for anti-replay. Currently uses a mock verifier (Phase 1). Real circuit verification keys arrive in Phase 2.
+
+**iam-registry** — Protocol configuration and validator management. Stores protocol parameters, handles validator registration with SOL staking, and computes Trust Scores.
+
+## Devnet Program IDs
+
+| Program | ID |
+|---------|-----|
+| iam-registry | `6VBs3zr9KrfFPGd6j7aGBPQWwZa5tajVfA7HN6MMV9VW` |
+| iam-verifier | `4F97jNoxQzT2qRbkWpW3ztC3Nz2TtKj3rnKG8ExgnrfV` |
+| iam-anchor | `GZYwTp2ozeuRA5Gof9vs4ya961aANcJBdUzB7LN6q4b2` |
+
+## Setup
+
+```bash
+# Prerequisites: Rust, Solana CLI >= 3.0, Anchor CLI >= 0.32, Node.js >= 20
+
+# Install dependencies
+npm install
+
+# Build all programs
+anchor build
+
+# Run tests (starts a local validator, deploys, runs 16 integration tests)
+anchor test
+
+# Deploy to devnet
+solana config set --url devnet
+anchor deploy --provider.cluster devnet
+```
+
+## Tests
+
+```bash
+anchor test
+```
+
+16 tests covering:
+- Identity minting (NonTransferable Token-2022, duplicate prevention, multi-user)
+- Proof verification (valid/invalid proofs, challenge expiry, replay prevention)
+- Registry (protocol initialization, validator staking, trust score computation)
+- End-to-end flow (mint → challenge → verify → update trust score)
+
+## License
+
+MIT
