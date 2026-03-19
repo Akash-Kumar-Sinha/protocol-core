@@ -1,0 +1,178 @@
+import * as anchor from "@coral-xyz/anchor";
+import { Program } from "@coral-xyz/anchor";
+import { expect } from "chai";
+import { IamRegistry } from "../target/types/iam_registry";
+
+describe("iam-registry", () => {
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+
+  const program = anchor.workspace.iamRegistry as Program<IamRegistry>;
+  const admin = provider.wallet;
+
+  const [protocolConfigPda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("protocol_config")],
+    program.programId
+  );
+
+  const [vaultPda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("vault")],
+    program.programId
+  );
+
+  const MIN_STAKE = new anchor.BN(1_000_000_000); // 1 SOL
+  const CHALLENGE_EXPIRY = new anchor.BN(300);
+  const MAX_TRUST_SCORE = 10000;
+  const BASE_TRUST_INCREMENT = 100;
+
+  it("initializes protocol config", async () => {
+    await program.methods
+      .initializeProtocol(
+        MIN_STAKE,
+        CHALLENGE_EXPIRY,
+        MAX_TRUST_SCORE,
+        BASE_TRUST_INCREMENT
+      )
+      .accounts({
+        admin: admin.publicKey,
+        protocolConfig: protocolConfigPda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .rpc();
+
+    const config = await program.account.protocolConfig.fetch(protocolConfigPda);
+    expect(config.admin.toBase58()).to.equal(admin.publicKey.toBase58());
+    expect(config.minStake.toNumber()).to.equal(1_000_000_000);
+    expect(config.challengeExpiry.toNumber()).to.equal(300);
+    expect(config.maxTrustScore).to.equal(10000);
+    expect(config.baseTrustIncrement).to.equal(100);
+  });
+
+  it("fails to re-initialize protocol config", async () => {
+    try {
+      await program.methods
+        .initializeProtocol(
+          MIN_STAKE,
+          CHALLENGE_EXPIRY,
+          MAX_TRUST_SCORE,
+          BASE_TRUST_INCREMENT
+        )
+        .accounts({
+          admin: admin.publicKey,
+          protocolConfig: protocolConfigPda,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .rpc();
+      expect.fail("Should have thrown");
+    } catch (err: any) {
+      // Account already initialized — Anchor prevents double init
+      expect(err).to.exist;
+    }
+  });
+
+  it("registers a validator with sufficient stake", async () => {
+    const validator = anchor.web3.Keypair.generate();
+
+    // Airdrop SOL to the validator
+    const sig = await provider.connection.requestAirdrop(
+      validator.publicKey,
+      5_000_000_000
+    );
+    await provider.connection.confirmTransaction(sig);
+
+    const [validatorStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("validator"), validator.publicKey.toBuffer()],
+      program.programId
+    );
+
+    await program.methods
+      .registerValidator(MIN_STAKE)
+      .accounts({
+        validator: validator.publicKey,
+        protocolConfig: protocolConfigPda,
+        validatorState: validatorStatePda,
+        vault: vaultPda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([validator])
+      .rpc();
+
+    const state = await program.account.validatorState.fetch(validatorStatePda);
+    expect(state.authority.toBase58()).to.equal(validator.publicKey.toBase58());
+    expect(state.stake.toNumber()).to.equal(1_000_000_000);
+    expect(state.isActive).to.be.true;
+    expect(state.verificationsPerformed.toNumber()).to.equal(0);
+  });
+
+  it("fails to register with insufficient stake", async () => {
+    const validator = anchor.web3.Keypair.generate();
+
+    const sig = await provider.connection.requestAirdrop(
+      validator.publicKey,
+      5_000_000_000
+    );
+    await provider.connection.confirmTransaction(sig);
+
+    const [validatorStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("validator"), validator.publicKey.toBuffer()],
+      program.programId
+    );
+
+    try {
+      await program.methods
+        .registerValidator(new anchor.BN(100)) // way below min_stake
+        .accounts({
+          validator: validator.publicKey,
+          protocolConfig: protocolConfigPda,
+          validatorState: validatorStatePda,
+          vault: vaultPda,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([validator])
+        .rpc();
+      expect.fail("Should have thrown");
+    } catch (err: any) {
+      expect(err.error.errorCode.code).to.equal("InsufficientStake");
+    }
+  });
+
+  it("computes trust score correctly", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const thirtyDaysAgo = now - 30 * 86400;
+
+    const listener = program.addEventListener("TrustScoreComputed", (event) => {
+      // 5 verifications * 100 base_increment = 500
+      // 30 days * 2 = 60
+      // Total = 560
+      expect(event.trustScore).to.equal(560);
+    });
+
+    await program.methods
+      .computeTrustScore(5, new anchor.BN(thirtyDaysAgo))
+      .accounts({
+        protocolConfig: protocolConfigPda,
+      })
+      .rpc();
+
+    program.removeEventListener(listener);
+  });
+
+  it("caps trust score at max", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const yearAgo = now - 365 * 86400;
+
+    const listener = program.addEventListener("TrustScoreComputed", (event) => {
+      // 200 * 100 = 20000, but max is 10000
+      expect(event.trustScore).to.equal(10000);
+    });
+
+    await program.methods
+      .computeTrustScore(200, new anchor.BN(yearAgo))
+      .accounts({
+        protocolConfig: protocolConfigPda,
+      })
+      .rpc();
+
+    program.removeEventListener(listener);
+  });
+});
