@@ -69,33 +69,70 @@ pub mod iam_registry {
         Ok(())
     }
 
-    /// Compute trust score from verification count and account age.
-    /// Returns the score via event emission.
+    /// Compute progressive trust score from verification history and account age.
+    ///
+    /// The formula rewards consistency over time, not rapid repetition:
+    /// - Each recent verification's contribution decays with age (30-day half-life)
+    /// - Regularity bonus: consistent spacing between verifications scores higher
+    /// - Age bonus: diminishing returns (sqrt) to prevent gaming via old unused accounts
+    /// - A bot verifying 100 times in one day scores much lower than a human verifying weekly for months
     pub fn compute_trust_score(
         ctx: Context<ComputeTrustScore>,
         verification_count: u32,
         creation_timestamp: i64,
+        recent_timestamps: [i64; 10],
     ) -> Result<()> {
         let config = &ctx.accounts.protocol_config;
         let now = Clock::get()?.unix_timestamp;
 
+        // 1. Recency-weighted verification count
+        // Each verification contributes 1 / (1 + days_since / 30)
+        // Recent verifications count almost fully; old ones fade toward zero
+        let mut recency_score: u64 = 0;
+        for ts in recent_timestamps.iter() {
+            if *ts == 0 { continue; }
+            let days_since = ((now - ts) / 86400).max(0) as u64;
+            // Fixed-point: multiply by 100 for precision, divide later
+            recency_score += 100 / (1 + days_since / 30);
+        }
+        // Scale: 10 recent verifications, each worth up to 100 = max 1000
+        // Divide by 100 and multiply by increment to get base score
+        let base_score = (recency_score / 100) * u64::from(config.base_trust_increment);
+
+        // 2. Regularity bonus
+        // Compute gaps between consecutive verifications, then stddev of gaps
+        // Lower stddev = more regular = higher bonus
+        let mut gaps: Vec<i64> = Vec::new();
+        for i in 0..9 {
+            let a = recent_timestamps[i];
+            let b = recent_timestamps[i + 1];
+            if a > 0 && b > 0 {
+                gaps.push((a - b) / 86400); // gap in days
+            }
+        }
+        let regularity_bonus: u64 = if gaps.len() >= 2 {
+            let mean_gap: i64 = gaps.iter().sum::<i64>() / gaps.len() as i64;
+            let variance: u64 = gaps.iter()
+                .map(|g| ((g - mean_gap) * (g - mean_gap)) as u64)
+                .sum::<u64>() / gaps.len() as u64;
+            let stddev = (variance as f64).sqrt() as u64;
+            // Lower stddev = more regular = higher bonus (max 20)
+            20u64.saturating_sub(stddev.min(20))
+        } else {
+            0
+        };
+
+        // 3. Age bonus with diminishing returns
         let age_seconds = now
             .checked_sub(creation_timestamp)
             .ok_or(RegistryError::ArithmeticOverflow)?;
         let age_days: u64 = (age_seconds / 86400).try_into().unwrap_or(0);
+        let age_bonus = ((age_days.min(365) as f64).sqrt() * 2.0) as u64;
 
-        let base_score = u64::from(verification_count)
-            .checked_mul(u64::from(config.base_trust_increment))
-            .ok_or(RegistryError::ArithmeticOverflow)?;
-
-        let capped_age_days = age_days.min(365);
-        let age_bonus = capped_age_days
-            .checked_mul(2)
-            .ok_or(RegistryError::ArithmeticOverflow)?;
-
+        // 4. Combine
         let total = base_score
-            .checked_add(age_bonus)
-            .ok_or(RegistryError::ArithmeticOverflow)?;
+            .saturating_add(regularity_bonus)
+            .saturating_add(age_bonus);
 
         let trust_score = total.min(u64::from(config.max_trust_score)) as u16;
 

@@ -110,6 +110,7 @@ pub mod iam_anchor {
         identity.current_commitment = initial_commitment;
         identity.mint = ctx.accounts.mint.key();
         identity.bump = ctx.bumps.identity_state;
+        identity.recent_timestamps = [0i64; 10];
 
         emit!(AnchorMinted {
             owner: identity.owner,
@@ -137,8 +138,15 @@ pub mod iam_anchor {
             .verification_count
             .checked_add(1)
             .ok_or(IamAnchorError::ArithmeticOverflow)?;
-        identity.last_verification_timestamp = Clock::get()?.unix_timestamp;
+        let now = Clock::get()?.unix_timestamp;
+        identity.last_verification_timestamp = now;
         identity.trust_score = new_trust_score;
+
+        // Shift recent_timestamps array: drop oldest, prepend newest
+        for i in (1..10).rev() {
+            identity.recent_timestamps[i] = identity.recent_timestamps[i - 1];
+        }
+        identity.recent_timestamps[0] = now;
 
         emit!(AnchorUpdated {
             owner: identity.owner,

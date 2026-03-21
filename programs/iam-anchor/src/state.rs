@@ -18,6 +18,9 @@ pub struct IdentityState {
     pub mint: Pubkey,
     /// PDA bump seed
     pub bump: u8,
+    /// Timestamps of last 10 verifications (newest at index 0).
+    /// Used by the registry to compute progressive trust scores.
+    pub recent_timestamps: [i64; 10],
 }
 
 impl IdentityState {
@@ -29,5 +32,6 @@ impl IdentityState {
         + 2   // trust_score
         + 32  // current_commitment
         + 32  // mint
-        + 1; // bump
+        + 1   // bump
+        + 80; // recent_timestamps (10 × 8 bytes)
 }
