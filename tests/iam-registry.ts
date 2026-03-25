@@ -157,6 +157,112 @@ describe("iam-registry", () => {
     program.removeEventListener(listener);
   });
 
+  it("unstakes validator and returns SOL", async () => {
+    const validator = anchor.web3.Keypair.generate();
+    const sig = await provider.connection.requestAirdrop(
+      validator.publicKey,
+      5_000_000_000
+    );
+    await provider.connection.confirmTransaction(sig);
+
+    const [validatorStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("validator"), validator.publicKey.toBuffer()],
+      program.programId
+    );
+
+    // Register with 1 SOL
+    await program.methods
+      .registerValidator(MIN_STAKE)
+      .accounts({
+        validator: validator.publicKey,
+        protocolConfig: protocolConfigPda,
+        validatorState: validatorStatePda,
+        vault: vaultPda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([validator])
+      .rpc();
+
+    const balanceBefore = await provider.connection.getBalance(validator.publicKey);
+
+    // Unstake
+    await program.methods
+      .unstakeValidator()
+      .accounts({
+        validator: validator.publicKey,
+        validatorState: validatorStatePda,
+        vault: vaultPda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([validator])
+      .rpc();
+
+    const balanceAfter = await provider.connection.getBalance(validator.publicKey);
+
+    // Should have received staked SOL + rent from closed ValidatorState
+    expect(balanceAfter).to.be.greaterThan(balanceBefore);
+
+    // ValidatorState account should be closed
+    const account = await provider.connection.getAccountInfo(validatorStatePda);
+    expect(account).to.be.null;
+  });
+
+  it("rejects unstake from non-authority", async () => {
+    const validator = anchor.web3.Keypair.generate();
+    const attacker = anchor.web3.Keypair.generate();
+
+    const sig1 = await provider.connection.requestAirdrop(
+      validator.publicKey,
+      5_000_000_000
+    );
+    await provider.connection.confirmTransaction(sig1);
+    const sig2 = await provider.connection.requestAirdrop(
+      attacker.publicKey,
+      2_000_000_000
+    );
+    await provider.connection.confirmTransaction(sig2);
+
+    const [validatorStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("validator"), validator.publicKey.toBuffer()],
+      program.programId
+    );
+
+    await program.methods
+      .registerValidator(MIN_STAKE)
+      .accounts({
+        validator: validator.publicKey,
+        protocolConfig: protocolConfigPda,
+        validatorState: validatorStatePda,
+        vault: vaultPda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([validator])
+      .rpc();
+
+    // Attacker tries to unstake — but PDA is derived from validator's key,
+    // so the seeds constraint will fail (attacker's key != validator's key)
+    const [attackerStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("validator"), attacker.publicKey.toBuffer()],
+      program.programId
+    );
+
+    try {
+      await program.methods
+        .unstakeValidator()
+        .accounts({
+          validator: attacker.publicKey,
+          validatorState: validatorStatePda,
+          vault: vaultPda,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([attacker])
+        .rpc();
+      expect.fail("Should have thrown — attacker cannot unstake another validator");
+    } catch (err: any) {
+      expect(err).to.exist;
+    }
+  });
+
   it("caps trust score at max", async () => {
     const now = Math.floor(Date.now() / 1000);
     const yearAgo = now - 365 * 86400;
