@@ -60,7 +60,7 @@ describe("iam-verifier", () => {
 
     await program.methods
       .createChallenge(nonce)
-      .accounts({
+      .accountsStrict({
         challenger: provider.wallet.publicKey,
         challenge: challengePda,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -87,7 +87,7 @@ describe("iam-verifier", () => {
 
     await program.methods
       .createChallenge(nonce)
-      .accounts({
+      .accountsStrict({
         challenger: provider.wallet.publicKey,
         challenge: challengePda,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -99,7 +99,7 @@ describe("iam-verifier", () => {
 
     await program.methods
       .verifyProof(proofBytes, publicInputs, nonce)
-      .accounts({
+      .accountsStrict({
         verifier: provider.wallet.publicKey,
         challenge: challengePda,
         verificationResult: verificationPda,
@@ -129,7 +129,7 @@ describe("iam-verifier", () => {
 
     await program.methods
       .createChallenge(nonce)
-      .accounts({
+      .accountsStrict({
         challenger: provider.wallet.publicKey,
         challenge: challengePda,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -144,7 +144,7 @@ describe("iam-verifier", () => {
     try {
       await program.methods
         .verifyProof(tamperedProof, fixture.public_inputs, nonce)
-        .accounts({
+        .accountsStrict({
           verifier: provider.wallet.publicKey,
           challenge: challengePda,
           verificationResult: verificationPda,
@@ -171,7 +171,7 @@ describe("iam-verifier", () => {
 
     await program.methods
       .createChallenge(nonce)
-      .accounts({
+      .accountsStrict({
         challenger: provider.wallet.publicKey,
         challenge: challengePda,
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -182,7 +182,7 @@ describe("iam-verifier", () => {
 
     await program.methods
       .verifyProof(proofBytes, fixture.public_inputs, nonce)
-      .accounts({
+      .accountsStrict({
         verifier: provider.wallet.publicKey,
         challenge: challengePda,
         verificationResult: verificationPda,
@@ -193,7 +193,7 @@ describe("iam-verifier", () => {
     try {
       await program.methods
         .verifyProof(proofBytes, fixture.public_inputs, nonce)
-        .accounts({
+        .accountsStrict({
           verifier: provider.wallet.publicKey,
           challenge: challengePda,
           verificationResult: verificationPda,
