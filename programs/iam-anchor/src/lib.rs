@@ -171,19 +171,57 @@ pub mod iam_anchor {
 
     /// Update the identity state after a successful proof verification.
     /// Trust score is computed automatically from verification history and protocol config.
+    /// Handles transparent migration from old (10-slot) to new (52-slot) account layouts.
     pub fn update_anchor(ctx: Context<UpdateAnchor>, new_commitment: [u8; 32]) -> Result<()> {
         require!(
             new_commitment != [0u8; 32],
             IamAnchorError::InvalidCommitment
         );
 
-        let identity = &mut ctx.accounts.identity_state;
+        let identity_info = &ctx.accounts.identity_state;
+        let now = Clock::get()?.unix_timestamp;
+        let new_len = IdentityState::LEN;
+
+        // Migrate: resize old accounts (207 bytes / 10 slots) to new size (543 bytes / 52 slots)
+        let current_len = identity_info.data_len();
+        if current_len < new_len {
+            identity_info.realloc(new_len, true)?;
+            // Pay additional rent for the extra space
+            let rent = Rent::get()?;
+            let required = rent.minimum_balance(new_len);
+            let current_lamports = identity_info.lamports();
+            if required > current_lamports {
+                system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.to_account_info(),
+                        system_program::Transfer {
+                            from: ctx.accounts.authority.to_account_info(),
+                            to: identity_info.to_account_info(),
+                        },
+                    ),
+                    required - current_lamports,
+                )?;
+            }
+        }
+
+        // Deserialize identity state (now guaranteed to be the right size)
+        let mut identity = {
+            let data = identity_info.try_borrow_data()?;
+            IdentityState::try_deserialize(&mut &data[..])
+                .map_err(|_| error!(IamAnchorError::InvalidProtocolConfig))?
+        };
+
+        // Verify ownership
+        require!(
+            identity.owner == ctx.accounts.authority.key(),
+            IamAnchorError::Unauthorized
+        );
+
         identity.current_commitment = new_commitment;
         identity.verification_count = identity
             .verification_count
             .checked_add(1)
             .ok_or(IamAnchorError::ArithmeticOverflow)?;
-        let now = Clock::get()?.unix_timestamp;
         identity.last_verification_timestamp = now;
 
         // Shift recent_timestamps array: drop oldest, prepend newest
@@ -205,6 +243,7 @@ pub mod iam_anchor {
             config_data[61], config_data[62], config_data[63], config_data[64],
             config_data[65], config_data[66], config_data[67], config_data[68],
         ]);
+        drop(config_data);
 
         // Deduplicate timestamps by calendar day (newest-first order means
         // same-day entries are adjacent). Multiple verifications on the same day
@@ -265,8 +304,11 @@ pub mod iam_anchor {
             .saturating_add(age_bonus);
         identity.trust_score = total.min(u64::from(max_trust_score)) as u16;
 
-        // Drop config borrow before CPI (Solana runtime restriction)
-        drop(config_data);
+        // Serialize identity state back to account
+        let mut data = identity_info.try_borrow_mut_data()?;
+        identity.try_serialize(&mut *data)
+            .map_err(|_| error!(IamAnchorError::ArithmeticOverflow))?;
+        drop(data);
 
         // Transfer verification fee from user to protocol treasury
         if verification_fee > 0 {
@@ -356,16 +398,15 @@ pub struct UpdateAnchor<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
+    /// CHECK: IdentityState PDA. Uses raw byte access to handle transparent migration
+    /// from old (10-slot) to new (52-slot) account layouts. PDA validated by seeds.
+    /// Ownership verified in instruction body after deserialization.
     #[account(
         mut,
-        realloc = IdentityState::LEN,
-        realloc::payer = authority,
-        realloc::zero = true,
-        seeds = [b"identity", identity_state.owner.as_ref()],
-        bump = identity_state.bump,
-        constraint = identity_state.owner == authority.key() @ IamAnchorError::Unauthorized,
+        seeds = [b"identity", authority.key().as_ref()],
+        bump,
     )]
-    pub identity_state: Account<'info, IdentityState>,
+    pub identity_state: UncheckedAccount<'info>,
 
     /// CHECK: Cross-program read of iam-registry ProtocolConfig PDA.
     /// Validated by seeds + owner via seeds::program.
