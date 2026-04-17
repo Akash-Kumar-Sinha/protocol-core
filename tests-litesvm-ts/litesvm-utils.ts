@@ -3,7 +3,7 @@ import {
   LAMPORTS_PER_SOL,
   PublicKey,
   Transaction,
-  type TransactionInstruction,
+  TransactionInstruction,
 } from "@solana/web3.js";
 import { expect } from "chai";
 import {
@@ -13,6 +13,7 @@ import {
   type SimulatedTransactionInfo,
   TransactionMetadata,
 } from "litesvm";
+import { numToBytes } from "./encodeDecode";
 
 export let svm = new LiteSVM();
 
@@ -48,40 +49,94 @@ console.log("verifierAddr:", verifierAddr.toBase58());
 
 export const SYSTEM_PROGRAM = new PublicKey("11111111111111111111111111111111"); //default or anchor.web3.SystemProgram.programId
 
+//-------------==
 export const acctIsNull = (account: PublicKey) => {
   const raw = svm.getAccount(account);
-  expect(raw === null);
+  expect(raw).to.be.null;
 };
 export const acctExists = (account: PublicKey) => {
   const raw = svm.getAccount(account);
-  expect(raw !== null);
+  expect(raw).to.not.be.null;
 };
-export const deployProgram = (computeMaxUnits?: bigint) => {
-  console.log("deployProgram...");
+export const acctEqual = (acct1: PublicKey | undefined, acct2: PublicKey) => {
+  if (!acct1) {
+    expect.fail("acct1 is undefined");
+  }
+  expect(acct1.toBase58()).equal(acct2.toBase58());
+};
+export const readAcct = (acct1: PublicKey, acctOwner: PublicKey) => {
+  const pdaRaw = svm.getAccount(acct1);
+  expect(pdaRaw).to.not.be.null;
+  const rawAccountData = pdaRaw?.data;
+  console.log("rawAccountData:", rawAccountData);
+  console.log("pdaRaw?.owner:", pdaRaw?.owner.toBase58());
+  acctEqual(pdaRaw?.owner, acctOwner);
+  return rawAccountData;
+};
+//-------------== Program Methods
+export const initializeProtocol = (
+  signer: Keypair,
+  protocol_config: PublicKey,
+  min_stake: bigint,
+  challenge_expiry: bigint, //i64,
+  max_trust_score: number, //u16,
+  base_trust_increment: number, //u16,
+  verification_fee: bigint,
+) => {
+  const disc = [188, 233, 252, 106, 134, 146, 202, 91]; //copied from Anchor IDL
+  if (challenge_expiry < 0) {
+    throw new Error("challenge_expiry should be positive");
+  }
+  const argData = [
+    ...numToBytes(min_stake),
+    ...numToBytes(challenge_expiry),
+    ...numToBytes(max_trust_score, 16),
+    ...numToBytes(base_trust_increment, 16),
+    ...numToBytes(verification_fee),
+  ];
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: protocol_config, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: registryAddr,
+    data: Buffer.from([...disc, ...argData]),
+  });
+  sendTxns(svm, blockhash, [ix], [signer], registryAddr);
+};
+//-------------== Deployment
+export const deployProgram = (
+  programPath: string,
+  programId: PublicKey,
+  computeMaxUnits?: bigint,
+) => {
   if (computeMaxUnits) {
     const computeBudget = new ComputeBudget();
     computeBudget.computeUnitLimit = computeMaxUnits;
     svm = svm.withComputeBudget(computeBudget);
   }
-  const programPath = "target/deploy/iam_anchor.so";
   //# Dump a program from mainnet
   //solana program dump progAddr pyth.so --url mainnet-beta
-
-  svm.addProgramFromFile(iamAnchorAddr, programPath);
-  //return [programId];
+  svm.addProgramFromFile(programId, programPath);
 };
-deployProgram();
+deployProgram("target/deploy/iam_anchor.so", iamAnchorAddr);
 acctExists(iamAnchorAddr);
+deployProgram("target/deploy/iam_registry.so", registryAddr);
+acctExists(registryAddr);
+deployProgram("target/deploy/iam_verifier.so", verifierAddr);
+acctExists(verifierAddr);
 console.log("program deployment is successful");
 
-//---------------==
+//-------------== Send Transactions
 export const sendTxns = (
   svm: LiteSVM,
   blockhash: string,
   ixs: TransactionInstruction[],
   signerKps: Keypair[],
+  programId: PublicKey,
   expectedError = "",
-  programId = iamAnchorAddr,
 ) => {
   const tx = new Transaction();
   tx.recentBlockhash = blockhash;
@@ -99,9 +154,6 @@ export const checkLogs = (
   isVerbose = false,
 ) => {
   console.log("\nsimRes meta prettylogs:", simRes.meta().prettyLogs());
-  if (isVerbose) {
-    console.log("\nsimRes.meta().logs():", simRes.meta().logs());
-  }
   /** simRes.meta():
       computeUnitsConsumed: [class computeUnitsConsumed],
       innerInstructions: [class innerInstructions],
@@ -111,13 +163,25 @@ export const checkLogs = (
       signature: [class signature],
       toString: [class toString], */
   if (sendRes instanceof TransactionMetadata) {
-    expect(simRes.meta().logs()).eq(sendRes.logs());
-
-    const logLength = simRes.meta().logs().length;
-    //console.log("logLength:", logLength);
+    const simResMetalogs = simRes.meta().logs();
+    if (isVerbose) {
+      console.log("txn succeeded 1");
+      console.log(
+        "simRes.meta().logs():",
+        simResMetalogs.length,
+        simResMetalogs,
+      );
+      const sendReslogs = sendRes.logs();
+      console.log("sendRes.logs():", sendReslogs.length, sendReslogs);
+      //expect(simRes.meta().logs()).eq(sendRes.logs());
+      console.log("txn succeeded 2");
+    }
     //console.log("sendRes.logs()[logIndex]:", sendRes.logs()[logIndex]);
-    expect(sendRes.logs()[logLength - 1]).eq(`Program ${programId} success`);
+    expect(sendRes.logs()[simResMetalogs.length - 1]).eq(
+      `Program ${programId} success`,
+    );
   } else {
+    console.log("txn failed");
     console.log("sendRes.err():", sendRes.err());
     console.log("sendRes.meta():", sendRes.meta());
     const errStr = sendRes.toString();

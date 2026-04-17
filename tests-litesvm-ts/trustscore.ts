@@ -8,10 +8,18 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import { expect } from "chai";
-import { LiteSVM } from "litesvm";
 import type { IamAnchor } from "../target/types/iam_anchor";
 import type { IamRegistry } from "../target/types/iam_registry";
-import { admin, SYSTEM_PROGRAM } from "./litesvm-utils";
+import { decodeProtocolConfigWeb3js } from "./encodeDecode";
+import {
+  acctEqual,
+  acctIsNull,
+  adminKp,
+  initializeProtocol,
+  readAcct,
+  registryAddr,
+  svm,
+} from "./litesvm-utils";
 
 /*
 Build the Solana programs first:
@@ -30,16 +38,19 @@ const [mintAuthorityPda] = anchor.web3.PublicKey.findProgramAddressSync(
 );
 console.log("mintAuthorityPda:", mintAuthorityPda.toBase58());
 
-const [protocolConfigPda] = anchor.web3.PublicKey.findProgramAddressSync(
-  [Buffer.from("protocol_config")],
-  registry.programId,
-);
+const [protocolConfigPda, protocolConfigBump] =
+  anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("protocol_config")],
+    registry.programId,
+  );
 
 const commitment = Buffer.alloc(32);
 commitment.write("initial_commitment_test", "utf-8");
 
+let signerKp: Keypair;
+let signer: PublicKey;
+
 test("one transfer", () => {
-  const svm = new LiteSVM();
   const payer = new Keypair();
   svm.airdrop(payer.publicKey, BigInt(LAMPORTS_PER_SOL));
   const receiver = PublicKey.unique();
@@ -62,22 +73,31 @@ test("one transfer", () => {
 });
 
 test("registry.initializeProtocol()", async () => {
-  try {
-    await registry.methods
-      .initializeProtocol(
-        new anchor.BN(1_000_000_000),
-        new anchor.BN(300),
-        10000,
-        100,
-        new anchor.BN(0),
-      )
-      .accountsStrict({
-        admin: admin,
-        protocolConfig: protocolConfigPda,
-        systemProgram: SYSTEM_PROGRAM,
-      })
-      .rpc();
-  } catch {
-    // Already initialized from a previous run
-  }
+  signerKp = adminKp;
+  signer = signerKp.publicKey;
+  const min_stake = 1_000_000_000n;
+  const challenge_expiry = 300n; //i64,
+  const max_trust_score = 10000; //u16,
+  const base_trust_increment = 100; //u16,
+  const verification_fee = 0n;
+  acctIsNull(protocolConfigPda);
+  initializeProtocol(
+    signerKp,
+    protocolConfigPda,
+    min_stake,
+    challenge_expiry,
+    max_trust_score,
+    base_trust_increment,
+    verification_fee,
+  );
+
+  const rawAccountData = readAcct(protocolConfigPda, registryAddr);
+  const decoded = decodeProtocolConfigWeb3js(rawAccountData);
+  acctEqual(decoded.admin, signer);
+  expect(decoded.min_stake).eq(min_stake);
+  expect(decoded.challenge_expiry).eq(challenge_expiry);
+  expect(decoded.max_trust_score).eq(max_trust_score);
+  expect(decoded.base_trust_increment).eq(base_trust_increment);
+  expect(decoded.bump).eq(protocolConfigBump);
+  expect(decoded.verification_fee).eq(verification_fee);
 });
