@@ -3,6 +3,7 @@ import {
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
+  SystemProgram,
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
@@ -104,11 +105,13 @@ export const ataBalCk = (
 export const initializeProtocol = (
   signer: Keypair,
   protocol_config: PublicKey,
+  //systemProgram: PublicKey,
   min_stake: bigint,
   challenge_expiry: bigint, //i64,
   max_trust_score: number, //u16,
   base_trust_increment: number, //u16,
   verification_fee: bigint,
+  expectedErr = "",
 ) => {
   const disc = [188, 233, 252, 106, 134, 146, 202, 91]; //copied from Anchor IDL
   const progAddr = registryAddr;
@@ -132,7 +135,59 @@ export const initializeProtocol = (
     programId: progAddr,
     data: Buffer.from([...disc, ...argData]),
   });
-  sendTxns(blockhash, [ix], [signer], progAddr);
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
+};
+
+export const updateProtocolConfig = (
+  signer: Keypair, //admin
+  verification_fee: bigint,
+  protocol_config: PublicKey,
+  //systemProgram: PublicKey,
+  expectedErr = "",
+) => {
+  const disc = [197, 97, 123, 54, 221, 168, 11, 135]; //copied from Anchor IDL
+  const progAddr = registryAddr;
+
+  const argData = [...numToBytes(verification_fee)];
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: protocol_config, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: progAddr,
+    data: Buffer.from([...disc, ...argData]),
+  });
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
+};
+
+export const registerValidator = (
+  signer: Keypair, //admin
+  min_stake: bigint,
+  protocol_config: PublicKey,
+  validator_state: PublicKey,
+  vault: PublicKey,
+  //systemProgram: PublicKey,
+  expectedErr = "",
+) => {
+  const disc = [118, 98, 251, 58, 81, 30, 13, 240]; //copied from Anchor IDL
+  const progAddr = registryAddr;
+
+  const argData = [...numToBytes(min_stake)];
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: protocol_config, isSigner: false, isWritable: true },
+      { pubkey: validator_state, isSigner: false, isWritable: true },
+      { pubkey: vault, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: progAddr,
+    data: Buffer.from([...disc, ...argData]),
+  });
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
 //-------------== iamAnchor Program Methods
 export const mintAnchor = (
@@ -147,7 +202,7 @@ export const mintAnchor = (
   //systemProgram: PublicKey,
   protocol_config: PublicKey,
   treasury: PublicKey,
-  expectedErr?: string,
+  expectedErr = "",
 ) => {
   const disc = [68, 56, 113, 102, 236, 152, 146, 60]; //copied from Anchor IDL
   const progAddr = iamAnchorAddr;
@@ -179,7 +234,7 @@ export const updateAnchor = (
   protocol_config: PublicKey,
   treasury: PublicKey,
   //systemProgram: PublicKey,
-  expectedErr?: string,
+  expectedErr = "",
 ) => {
   const disc = [120, 192, 72, 245, 112, 246, 119, 135]; //copied from Anchor IDL
   const progAddr = iamAnchorAddr;
@@ -204,6 +259,7 @@ export const createChallenge = (
   nonce: number[],
   challengePda: PublicKey,
   //systemProgram: PublicKey,
+  expectedErr = "",
 ) => {
   const disc = [170, 244, 47, 1, 1, 15, 173, 239]; //copied from Anchor IDL
   const progAddr = verifierAddr;
@@ -218,7 +274,34 @@ export const createChallenge = (
     programId: progAddr,
     data: Buffer.from([...disc, ...argData]),
   });
-  sendTxns(blockhash, [ix], [signer], progAddr);
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
+};
+
+export const verifyProof = (
+  signer: Keypair, //challenger
+  proofBytes: Buffer<ArrayBuffer>,
+  publicInputs: number[][],
+  nonce: number[],
+  challengePda: PublicKey,
+  verificationPda: PublicKey,
+  //systemProgram: PublicKey,
+  expectedErr = "",
+) => {
+  const disc = [217, 211, 191, 110, 144, 13, 186, 98]; //copied from Anchor IDL
+  const progAddr = verifierAddr;
+  const argData = [...proofBytes, ...publicInputs.flat(1), ...nonce];
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: challengePda, isSigner: false, isWritable: true },
+      { pubkey: verificationPda, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: progAddr,
+    data: Buffer.from([...disc, ...argData]),
+  });
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
 
 //-------------== Time Manipulation
@@ -276,6 +359,33 @@ export const sendTxns = (
   const simRes = svm.simulateTransaction(tx);
   const sendRes = svm.sendTransaction(tx);
   checkLogs(simRes, sendRes, programId, expectedError);
+};
+//-------------== Send SOL
+/**  warpTime(100);
+  sendSol(signerKp, user1);
+  warpTime(100); */
+export const sendSol = (
+  signer: Keypair,
+  receiver: PublicKey,
+  transferLamports = BigInt(1_000_000),
+  expectedError = "",
+) => {
+  //const receiver = PublicKey.unique();
+  const blockhash = svm.latestBlockhash();
+  const ixs = [
+    SystemProgram.transfer({
+      fromPubkey: signer.publicKey,
+      toPubkey: receiver,
+      lamports: transferLamports,
+    }),
+  ];
+  const tx = new Transaction();
+  tx.recentBlockhash = blockhash;
+  tx.add(...ixs);
+  tx.sign(signer);
+  const simRes = svm.simulateTransaction(tx);
+  const sendRes = svm.sendTransaction(tx);
+  checkLogs(simRes, sendRes, SYSTEM_PROGRAM, expectedError);
 };
 export const checkLogs = (
   simRes: FailedTransactionMetadata | SimulatedTransactionInfo,

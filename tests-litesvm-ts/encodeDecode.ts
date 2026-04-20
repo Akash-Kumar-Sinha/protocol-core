@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type {
   Address,
   FixedSizeDecoder,
@@ -33,7 +35,15 @@ export const [treasuryPda] = PublicKey.findProgramAddressSync(
 );
 console.log("treasuryPda:", treasuryPda.toBase58());
 //-----------== iamVerifier
-//export const loadProofFixture = () => {}
+// Load pre-generated Groth16 proof fixture
+//import proofFixture from "../tests/fixtures/test_proof.json"; //with { type: 'json' };
+export const loadProofFixture = () =>
+  JSON.parse(
+    fs.readFileSync(path.resolve("tests/fixtures/test_proof.json"), "utf-8"),
+  );
+export const fixture = loadProofFixture();
+export const proofBytes = Buffer.from(fixture.proof_bytes); //bytes in Anchor IDL,  Vec<u8> in Rust
+export const publicInputs: number[][] = fixture.public_inputs; // vec<array of 32 u8> in Anchor IDL, Vec<[u8; 32]> in Rust
 
 export const generateNonce = (): number[] =>
   Array.from(Keypair.generate().publicKey.toBytes());
@@ -47,6 +57,17 @@ export const deriveVerificationPda = (verifier: PublicKey, nonce: number[]) =>
     [Buffer.from("verification"), verifier.toBuffer(), Buffer.from(nonce)],
     verifierAddr,
   );
+export const deriveValidatorState = (validator: PublicKey) =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from("validator"), validator.toBuffer()],
+    registryAddr,
+  );
+
+export const [vaultPda] = PublicKey.findProgramAddressSync(
+  [Buffer.from("vault")],
+  registryAddr,
+);
+
 //-----------== iamAnchor
 export const deriveMintPda = (user: PublicKey) =>
   PublicKey.findProgramAddressSync(
