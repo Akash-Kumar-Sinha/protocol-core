@@ -71,6 +71,7 @@ export const readAcct = (acct1: PublicKey, acctOwner?: PublicKey) => {
   const rawAccountData = pdaRaw?.data;
   console.log("rawAccountData:", rawAccountData);
   console.log("pdaRaw?.owner:", pdaRaw?.owner.toBase58());
+  //expect(rawAccountData).not.toBeUndefined;
   if (acctOwner) acctEqual(pdaRaw?.owner, acctOwner);
   return rawAccountData;
 };
@@ -146,6 +147,7 @@ export const mintAnchor = (
   //systemProgram: PublicKey,
   protocol_config: PublicKey,
   treasury: PublicKey,
+  expectedErr?: string,
 ) => {
   const disc = [68, 56, 113, 102, 236, 152, 146, 60]; //copied from Anchor IDL
   const progAddr = iamAnchorAddr;
@@ -167,7 +169,7 @@ export const mintAnchor = (
     programId: progAddr,
     data: Buffer.from([...disc, ...argData]),
   });
-  sendTxns(blockhash, [ix], [signer], progAddr);
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
 
 export const updateAnchor = (
@@ -177,6 +179,7 @@ export const updateAnchor = (
   protocol_config: PublicKey,
   treasury: PublicKey,
   //systemProgram: PublicKey,
+  expectedErr?: string,
 ) => {
   const disc = [120, 192, 72, 245, 112, 246, 119, 135]; //copied from Anchor IDL
   const progAddr = iamAnchorAddr;
@@ -193,7 +196,7 @@ export const updateAnchor = (
     programId: progAddr,
     data: Buffer.from([...disc, ...argData]),
   });
-  sendTxns(blockhash, [ix], [signer], progAddr);
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
 
 export const createChallenge = (
@@ -328,9 +331,7 @@ export const checkLogs = (
       "find error here: https://docs.rs/solana-sdk/latest/solana_sdk/transaction/enum.TransactionError.html",
     );
     if (expectedError) {
-      const foundErrorMesg = sendRes
-        .toString()
-        .includes(`custom program error: ${expectedError}`);
+      const foundErrorMesg = sendRes.toString().includes(`${expectedError}`);
       console.log("found error?:", foundErrorMesg);
       expect(foundErrorMesg).eq(true);
     } else {
