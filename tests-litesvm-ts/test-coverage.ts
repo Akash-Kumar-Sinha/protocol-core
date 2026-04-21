@@ -204,7 +204,6 @@ test("iamAnchor.updateAnchor(): passing 32 zero bytes as commitment should fail"
   signer = signerKp.publicKey;
   const [identityPda] = deriveIdentityPda(signer);
   const newCommitment = Buffer.alloc(32);
-  //newCommitment.write("", "utf-8");
   console.log("newCommitment", newCommitment);
 
   expectedErr =
@@ -336,7 +335,7 @@ test("registry.updateProtocolConfig() should fail by non-admin", async () => {
 });
 
 //------== registerValidator
-test("registry.registerValidaotr() with insufficient SOL", async () => {
+test("registry.registerValidator() with insufficient SOL", async () => {
   console.log("\n----------------==");
   signerKp = user1Kp;
   signer = signerKp.publicKey;
@@ -354,7 +353,7 @@ test("registry.registerValidaotr() with insufficient SOL", async () => {
     expectedErr,
   );
 });
-test("registry.registerValidaotr() with sufficient SOL", async () => {
+test("registry.registerValidator() with sufficient SOL", async () => {
   console.log("\n----------------==");
   signerKp = user1Kp;
   signer = signerKp.publicKey;
@@ -369,7 +368,7 @@ test("registry.registerValidaotr() with sufficient SOL", async () => {
     vaultPda,
   );
 });
-test("registry.registerValidaotr(): the same validator registering 2nd time should fail", async () => {
+test("registry.registerValidator(): the same validator registering 2nd time should fail", async () => {
   console.log("\n----------------==");
   signerKp = user1Kp;
   signer = signerKp.publicKey;

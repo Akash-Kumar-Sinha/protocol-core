@@ -72,7 +72,6 @@ export const readAcct = (acct1: PublicKey, acctOwner?: PublicKey) => {
   const rawAccountData = pdaRaw?.data;
   console.log("rawAccountData:", rawAccountData);
   console.log("pdaRaw?.owner:", pdaRaw?.owner.toBase58());
-  //expect(rawAccountData).not.toBeUndefined;
   if (acctOwner) acctEqual(pdaRaw?.owner, acctOwner);
   return rawAccountData;
 };
@@ -105,7 +104,6 @@ export const ataBalCk = (
 export const initializeProtocol = (
   signer: Keypair,
   protocol_config: PublicKey,
-  //systemProgram: PublicKey,
   min_stake: bigint,
   challenge_expiry: bigint, //i64,
   max_trust_score: number, //u16,
@@ -142,7 +140,6 @@ export const updateProtocolConfig = (
   signer: Keypair, //admin
   verification_fee: bigint,
   protocol_config: PublicKey,
-  //systemProgram: PublicKey,
   expectedErr = "",
 ) => {
   const disc = [197, 97, 123, 54, 221, 168, 11, 135]; //copied from Anchor IDL
@@ -168,7 +165,6 @@ export const registerValidator = (
   protocol_config: PublicKey,
   validator_state: PublicKey,
   vault: PublicKey,
-  //systemProgram: PublicKey,
   expectedErr = "",
 ) => {
   const disc = [118, 98, 251, 58, 81, 30, 13, 240]; //copied from Anchor IDL
@@ -199,7 +195,6 @@ export const mintAnchor = (
   tokenAccount: PublicKey,
   associatedTokenProgram: PublicKey,
   tokenProgram: PublicKey,
-  //systemProgram: PublicKey,
   protocol_config: PublicKey,
   treasury: PublicKey,
   expectedErr = "",
@@ -233,7 +228,6 @@ export const updateAnchor = (
   identity_state: PublicKey,
   protocol_config: PublicKey,
   treasury: PublicKey,
-  //systemProgram: PublicKey,
   expectedErr = "",
 ) => {
   const disc = [120, 192, 72, 245, 112, 246, 119, 135]; //copied from Anchor IDL
@@ -258,7 +252,6 @@ export const createChallenge = (
   signer: Keypair, //challenger
   nonce: number[],
   challengePda: PublicKey,
-  //systemProgram: PublicKey,
   expectedErr = "",
 ) => {
   const disc = [170, 244, 47, 1, 1, 15, 173, 239]; //copied from Anchor IDL
@@ -279,17 +272,26 @@ export const createChallenge = (
 
 export const verifyProof = (
   signer: Keypair, //challenger
-  proofBytes: Buffer<ArrayBuffer>,
-  publicInputs: number[][],
-  nonce: number[],
+  proofBytes: Buffer<ArrayBuffer>, // Vec<u8>
+  publicInputs: number[][], // Vec<[u8; 32]>
+  nonce: number[], // [u8; 32]
   challengePda: PublicKey,
   verificationPda: PublicKey,
-  //systemProgram: PublicKey,
   expectedErr = "",
 ) => {
   const disc = [217, 211, 191, 110, 144, 13, 186, 98]; //copied from Anchor IDL
   const progAddr = verifierAddr;
-  const argData = [...proofBytes, ...publicInputs.flat(1), ...nonce];
+  const proofLen = Buffer.alloc(4);
+  proofLen.writeUInt32LE(proofBytes.length, 0);
+  const publicInputsLen = Buffer.alloc(4);
+  publicInputsLen.writeUInt32LE(publicInputs.length, 0);
+  const argData = [
+    ...proofLen,
+    ...proofBytes,
+    ...publicInputsLen,
+    ...publicInputs.flat(1),
+    ...nonce,
+  ];
   const blockhash = svm.latestBlockhash();
   const ix = new TransactionInstruction({
     keys: [
@@ -325,16 +327,6 @@ export const warpSlot = (newSlot: number) => {
   svm.warpToSlot(BigInt(newSlot));
   const slot1 = svm.getClock().slot;
   console.log("new slot:", slot1);
-};
-export const sendSolWarpTimeSlot = (
-  signerKp: Keypair,
-  newSlot: number,
-  lamports: number,
-  recipient = user1,
-) => {
-  sendSol(signerKp, recipient, BigInt(lamports));
-  warpTime(1000);
-  warpSlot(newSlot);
 };
 //-------------== Deployment
 export const deployProgram = (

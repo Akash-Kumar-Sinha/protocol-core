@@ -5,7 +5,7 @@
   "scripts": {
     "test": "anchor test",
     "litesvm-transfer-sol": "node ./tests-litesvm-ts/transfer-sol.ts",
-    "litesvm-test-coverage": "node ./tests-litesvm-ts/test-coverage.ts",
+    "litesvm-coverage": "node ./tests-litesvm-ts/test-coverage.ts",
     "litesvm-trustscore": "node ./tests-litesvm-ts/clock-tests.ts"
   },
   "overrides": {
