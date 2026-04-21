@@ -248,6 +248,32 @@ export const updateAnchor = (
   sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
 
+export const resetIdentityState = (
+  signer: Keypair,
+  new_commitment: Buffer<ArrayBuffer>,
+  identity_state: PublicKey,
+  protocol_config: PublicKey,
+  treasury: PublicKey,
+  expectedErr = "",
+) => {
+  const disc = [26, 78, 86, 143, 247, 132, 85, 203]; //copied from Anchor IDL
+  const progAddr = iamAnchorAddr;
+  const argData = [...new_commitment];
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: identity_state, isSigner: false, isWritable: true },
+      { pubkey: protocol_config, isSigner: false, isWritable: false }, //belongs to registry
+      { pubkey: treasury, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: progAddr,
+    data: Buffer.from([...disc, ...argData]),
+  });
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
+};
+
 export const createChallenge = (
   signer: Keypair, //challenger
   nonce: number[],

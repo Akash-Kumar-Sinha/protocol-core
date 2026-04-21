@@ -26,4 +26,6 @@ pub enum IamAnchorError {
     CommitmentMismatch,
     #[msg("Proof commitment_prev does not match the identity's current_commitment")]
     PrevCommitmentMismatch,
+    #[msg("Reset cooldown has not elapsed since the last reset")]
+    ResetCooldownActive,
 }

@@ -22,6 +22,10 @@ pub struct IdentityState {
     /// 52 slots covers 1 year of weekly or 4+ years of monthly verifications.
     /// Older entries contribute negligible score due to exponential recency decay.
     pub recent_timestamps: [i64; 52],
+    /// Most recent `reset_identity_state` invocation. Zero when the identity
+    /// has never been reset (including freshly minted accounts and accounts
+    /// created before this field existed and then realloc'd in-place).
+    pub last_reset_timestamp: i64,
 }
 
 impl IdentityState {
@@ -34,5 +38,10 @@ impl IdentityState {
         + 32  // current_commitment
         + 32  // mint
         + 1   // bump
-        + 416; // recent_timestamps (52 × 8 bytes)
+        + 416 // recent_timestamps (52 × 8 bytes)
+        + 8;  // last_reset_timestamp
+
+    /// Pre-reset layout size. Used by `reset_identity_state` to detect legacy
+    /// accounts that need realloc before the new field can be written.
+    pub const LEN_PRE_RESET: usize = 543;
 }

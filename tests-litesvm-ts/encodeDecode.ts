@@ -93,6 +93,7 @@ export type IdentityStateAcct = {
   mint: Address;
   bump: number;
   recent_timestamps: bigint[]; //len = 52; BigInt64Array
+  last_reset_timestamp: bigint;
 };
 export const identityStateAcctDecoder: FixedSizeDecoder<IdentityStateAcct> =
   getStructDecoder([
@@ -106,6 +107,7 @@ export const identityStateAcctDecoder: FixedSizeDecoder<IdentityStateAcct> =
     ["mint", getAddressDecoder()],
     ["bump", getU8Decoder()],
     ["recent_timestamps", getArrayDecoder(getI64Decoder(), { size: 52 })],
+    ["last_reset_timestamp", getI64Decoder()],
   ]);
 export const decodeIdentityState = (
   bytes: ReadonlyUint8Array | Uint8Array<ArrayBufferLike>,
@@ -144,6 +146,7 @@ export const decodeIdentityStateWeb3js = (
     current_commitment: decoded.current_commitment,
     mint: new PublicKey(decoded.mint.toString()),
     recent_timestamps: decoded.recent_timestamps,
+    last_reset_timestamp: decoded.last_reset_timestamp,
   };
   return decodedV1;
 };
@@ -157,6 +160,7 @@ export type IdentityStateAcctWeb3js = {
   mint: PublicKey;
   bump: number;
   recent_timestamps: bigint[];
+  last_reset_timestamp: bigint;
 };
 //-----------== ProtocolConfigPDA
 export const [protocolConfigPda, protocolConfigBump] =

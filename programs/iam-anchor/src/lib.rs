@@ -43,6 +43,12 @@ const VERIFIER_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
 /// relayer latency without allowing stale proofs to sit indefinitely.
 const MAX_PROOF_AGE_SECS: i64 = 600;
 
+/// Minimum seconds between `reset_identity_state` calls on the same
+/// identity. 7 days. Raises attacker time-cost after wallet compromise
+/// and bounds legitimate reset frequency to something close to a weekly
+/// review cadence. Upgradeable via program redeploy if abuse is observed.
+const RESET_COOLDOWN_SECS: i64 = 604_800;
+
 /// Post-patch size of the iam-verifier `VerificationResult` account.
 /// Enforced as a length check in update_anchor — accounts created before the
 /// 2026-04-20 binding patch have the smaller legacy layout (114 bytes) and
@@ -473,6 +479,139 @@ pub mod iam_anchor {
 
         Ok(())
     }
+
+    /// Reset the caller's identity state to a fresh baseline.
+    ///
+    /// Recovery path for users whose client-side fingerprint envelope is
+    /// unrecoverable (cleared site data, new device, corrupted keystore).
+    /// Without this instruction the only answer is "mint a new wallet,"
+    /// which discards on-chain history and the SAS attestation. Reset
+    /// rotates `current_commitment` in place and zeroes verification
+    /// history so a compromised wallet cannot inherit reputation.
+    ///
+    /// Defenses:
+    /// - Signer constraint on `authority` proves wallet ownership.
+    /// - 7-day cooldown (`RESET_COOLDOWN_SECS`) bounds abuse frequency.
+    /// - Full zero of `verification_count`, `trust_score`, and
+    ///   `recent_timestamps` means an attacker who compromises the
+    ///   wallet key and passes Tier 1 validation starts from zero.
+    /// - Verification fee charged, matching mint/update economics.
+    ///
+    /// No ZK proof is consumed: there is no prior fingerprint to
+    /// Hamming-compare against, and the Hamming circuit's
+    /// `min_distance ≥ 3` constraint would reject a same-fingerprint
+    /// proof anyway. Live-humanness evidence comes from the Tier 1
+    /// validation pipeline at the SAS attestation step (handled by
+    /// the off-chain executor, not this instruction).
+    pub fn reset_identity_state(
+        ctx: Context<ResetIdentityState>,
+        new_commitment: [u8; 32],
+    ) -> Result<()> {
+        require!(
+            new_commitment != [0u8; 32],
+            IamAnchorError::InvalidCommitment
+        );
+
+        let identity_info = &ctx.accounts.identity_state;
+        require!(
+            identity_info.owner == &crate::ID,
+            IamAnchorError::InvalidIdentityState
+        );
+        let now = Clock::get()?.unix_timestamp;
+        let new_len = IdentityState::LEN;
+
+        // Migrate: grow legacy accounts (pre-reset layouts at 207 or 543
+        // bytes) to the new 551-byte layout so the extended struct can
+        // deserialize. Zero-fill ensures `last_reset_timestamp` starts at 0.
+        let current_len = identity_info.data_len();
+        if current_len < new_len {
+            identity_info.realloc(new_len, true)?;
+            let rent = Rent::get()?;
+            let required = rent.minimum_balance(new_len);
+            let current_lamports = identity_info.lamports();
+            if required > current_lamports {
+                system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.to_account_info(),
+                        system_program::Transfer {
+                            from: ctx.accounts.authority.to_account_info(),
+                            to: identity_info.to_account_info(),
+                        },
+                    ),
+                    required - current_lamports,
+                )?;
+            }
+        }
+
+        let mut identity = {
+            let data = identity_info.try_borrow_data()?;
+            IdentityState::try_deserialize(&mut &data[..])
+                .map_err(|_| error!(IamAnchorError::InvalidIdentityState))?
+        };
+
+        require!(
+            identity.owner == ctx.accounts.authority.key(),
+            IamAnchorError::Unauthorized
+        );
+
+        // Cooldown. Legacy accounts have `last_reset_timestamp = 0`
+        // (zero-filled during realloc or never written), which means
+        // `elapsed = now` on the first reset — always >> RESET_COOLDOWN_SECS.
+        // This grants every existing identity a free first reset at rollout,
+        // which is the intended behavior.
+        let elapsed = now.saturating_sub(identity.last_reset_timestamp);
+        require!(
+            elapsed >= RESET_COOLDOWN_SECS,
+            IamAnchorError::ResetCooldownActive
+        );
+
+        // Read verification fee from protocol config (cross-program, iam-registry).
+        // Same offset as mint_anchor (bytes 61..69 after discriminator).
+        let verification_fee = {
+            let config_data = ctx.accounts.protocol_config.try_borrow_data()?;
+            if config_data.len() >= 69 {
+                u64::from_le_bytes([
+                    config_data[61], config_data[62], config_data[63], config_data[64],
+                    config_data[65], config_data[66], config_data[67], config_data[68],
+                ])
+            } else {
+                0
+            }
+        };
+
+        identity.current_commitment = new_commitment;
+        identity.verification_count = 0;
+        identity.trust_score = 0;
+        identity.recent_timestamps = [0i64; 52];
+        identity.last_verification_timestamp = now;
+        identity.last_reset_timestamp = now;
+
+        let mut data = identity_info.try_borrow_mut_data()?;
+        identity.try_serialize(&mut *data)
+            .map_err(|_| error!(IamAnchorError::IdentitySerializationFailed))?;
+        drop(data);
+
+        if verification_fee > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.authority.to_account_info(),
+                        to: ctx.accounts.treasury.to_account_info(),
+                    },
+                ),
+                verification_fee,
+            )?;
+        }
+
+        emit!(AnchorReset {
+            owner: identity.owner,
+            mint: identity.mint,
+            commitment: new_commitment,
+        });
+
+        Ok(())
+    }
 }
 
 // --- Account Contexts ---
@@ -582,6 +721,43 @@ pub struct UpdateAnchor<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct ResetIdentityState<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    /// CHECK: IdentityState PDA. UncheckedAccount because `reset_identity_state`
+    /// may realloc legacy-layout accounts (207 or 543 bytes) to the current
+    /// 551-byte layout before deserialization. PDA validated by seeds;
+    /// ownership verified in instruction body after deserialization.
+    #[account(
+        mut,
+        seeds = [b"identity", authority.key().as_ref()],
+        bump,
+    )]
+    pub identity_state: UncheckedAccount<'info>,
+
+    /// CHECK: Cross-program read of iam-registry ProtocolConfig PDA.
+    /// Supplies the verification fee amount charged on reset.
+    #[account(
+        seeds = [b"protocol_config"],
+        bump,
+        seeds::program = REGISTRY_PROGRAM_ID,
+    )]
+    pub protocol_config: UncheckedAccount<'info>,
+
+    /// CHECK: Protocol treasury PDA on iam-registry. Receives the reset fee.
+    #[account(
+        mut,
+        seeds = [b"protocol_treasury"],
+        bump,
+        seeds::program = REGISTRY_PROGRAM_ID,
+    )]
+    pub treasury: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
 // --- Events ---
 
 #[event]
@@ -596,5 +772,12 @@ pub struct AnchorUpdated {
     pub owner: Pubkey,
     pub verification_count: u32,
     pub trust_score: u16,
+    pub commitment: [u8; 32],
+}
+
+#[event]
+pub struct AnchorReset {
+    pub owner: Pubkey,
+    pub mint: Pubkey,
     pub commitment: [u8; 32],
 }
