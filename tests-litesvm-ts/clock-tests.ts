@@ -50,7 +50,7 @@ const fixture = loadProofFixture();
 let signerKp: Keypair;
 let pdas: Pdas;
 let trustscorePrev: number;
-setTime(BigInt(getJsTime()));
+setTime(getJsTime());
 
 test("registry.initializeProtocol()", async () => {
   console.log("\n----------------== registry.initializeProtocol()");

@@ -110,8 +110,8 @@ test("iamAnchor.updateAnchor(): calling this before mint_anchor() should fail", 
   );
 });
 
-test("registry.mintAnchor()", async () => {
-  console.log("\n----------------== registry.mintAnchor()");
+test("iamAnchor.mintAnchor()", async () => {
+  console.log("\n----------------== iamAnchor.mintAnchor()");
   signerKp = adminKp;
   pdas = pdasBySignerKp(signerKp);
   const tokenProgram = TOKEN_2022_PROGRAM_ID;

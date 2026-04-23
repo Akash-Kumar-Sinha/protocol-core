@@ -254,6 +254,7 @@ export const mintAnchor = (
   });
   sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
+
 export const authorizeNewWallet = (
   signer: Keypair,
   identity_state: PublicKey,
@@ -273,6 +274,35 @@ export const authorizeNewWallet = (
     data: Buffer.from([...disc]),
   });
   sendTxns(blockhash, [ix], [signer, signer_new], progAddr, expectedErr);
+};
+
+export const expectTheSameArray = (array1: bigint[], array2: bigint[]) => {
+  expect(array1.length).to.equal(array2.length);
+  for (const [index, value] of array1.entries()) {
+    expect(array2[index]).to.equal(value);
+  }
+};
+export const migrateIdentity = (
+  signer: Keypair,
+  wallet_old: PublicKey,
+  identity_state_old: PublicKey,
+  identity_state_new: PublicKey,
+  expectedErr = "",
+) => {
+  const disc = [161, 192, 70, 80, 47, 37, 26, 10]; //copied from Anchor IDL
+  const progAddr = iamAnchorAddr;
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: wallet_old, isSigner: false, isWritable: false },
+      { pubkey: identity_state_old, isSigner: false, isWritable: true },
+      { pubkey: identity_state_new, isSigner: false, isWritable: true },
+    ],
+    programId: progAddr,
+    data: Buffer.from([...disc]),
+  });
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
 
 export const updateAnchor = (
@@ -394,7 +424,11 @@ export const verifyProof = (
 export const getJsTime = () => {
   const time = Math.floor(Date.now() / 1000);
   console.log("JS time:", time);
-  return time;
+  return BigInt(time);
+};
+export const getSolTime = () => {
+  const clock = svm.getClock();
+  return clock.unixTimestamp;
 };
 export const setTime = (time: bigint) => {
   const clock = svm.getClock();
@@ -412,6 +446,7 @@ export const warpSlot = (newSlot: number) => {
   const slot1 = svm.getClock().slot;
   console.log("new slot:", slot1);
 };
+export const defaultRecentTimestamps = new Array(52).fill(BigInt(0));
 //-------------== Deployment
 export const deployProgram = (
   programPath: string,

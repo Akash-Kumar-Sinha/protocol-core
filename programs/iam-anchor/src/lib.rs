@@ -239,7 +239,7 @@ pub mod iam_anchor {
         identity.trust_score = identity_old.trust_score;
         identity.current_commitment = identity_old.current_commitment;
         identity.recent_timestamps = identity_old.recent_timestamps;
-        //owner, mint, bump remain intact
+        //owner, creation_timestamp, mint, bump remain intact
 
         emit!(MigrateIdentity {
             wallet_old: ctx.accounts.wallet_old.key(),
@@ -677,12 +677,14 @@ pub struct MigradeIdentity<'info> {
     /// CHECK: cannot check this wallet
     pub wallet_old: UncheckedAccount<'info>,
     #[account(
+        mut,
         seeds = [b"identity", wallet_old.key().as_ref()],
         bump,
     )]
     pub identity_state_old: Account<'info, IdentityState>,
 
     #[account(
+        mut,
         seeds = [b"identity", user.key().as_ref()],
         bump,
     )]

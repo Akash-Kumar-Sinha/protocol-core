@@ -50,7 +50,7 @@ const RESET_COOLDOWN_SECS = 604_800;
 
 let signerKp: Keypair;
 let signer: PublicKey;
-setTime(BigInt(getJsTime()));
+setTime(getJsTime());
 
 test("registry.initializeProtocol()", async () => {
   signerKp = adminKp;
