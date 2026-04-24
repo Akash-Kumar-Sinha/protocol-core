@@ -3,7 +3,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token_2022;
+use anchor_spl::token_2022::{self, burn, Burn, spl_token_2022};
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 use solana_security_txt::security_txt;
 
@@ -94,8 +94,6 @@ const MINT_SIZE_WITH_NON_TRANSFERABLE: usize = 170;
 
 #[program]
 pub mod iam_anchor {
-    use std::convert::identity;
-
     use super::*;
 
     /// Mint a new IAM Anchor identity for the caller. rgb(107, 223, 7)
@@ -227,9 +225,9 @@ pub mod iam_anchor {
         identity.new_wallet = ctx.accounts.signer_new.key();
         Ok(())
     }
-    /// Migrade from an user's old IAM Anchor IdentityState PDA to a new one rgb(107, 223, 7)
+    /// Migrade from an user's old IAM Anchor IdentityState PDA to a new one
     pub fn migrate_identity(ctx: Context<MigradeIdentity>) -> Result<()> {
-        let user_key = ctx.accounts.user.key();
+        let user_key = ctx.accounts.user.key();//rgb(107, 223, 7)
         let mint_seeds: &[&[u8]] = &[b"mint", user_key.as_ref(), &[ctx.bumps.mint]];
         let mint_authority_seeds: &[&[u8]] = &[b"mint_authority", &[ctx.bumps.mint_authority]];
 
@@ -341,6 +339,16 @@ pub mod iam_anchor {
             )?;
         }
 
+        // burn old identity token
+        let cpi_accounts = Burn {
+            mint: ctx.accounts.mint_old.to_account_info(),
+            from: ctx.accounts.token_account_old.to_account_info(),
+            authority: ctx.accounts.user_old.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+        burn(cpi_ctx, 1)?;
+        
         emit!(MigrateIdentity {
             user_old: ctx.accounts.user_old.key(),
             wallet_new: user_key,
@@ -770,7 +778,7 @@ pub struct AuthorizeNewWallet<'info> {
     #[account(mut)]
     pub signer_new: Signer<'info>,
 }
-#[derive(Accounts)]
+#[derive(Accounts)]//rgb(107, 223, 7)
 pub struct MigradeIdentity<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
@@ -830,18 +838,17 @@ pub struct MigradeIdentity<'info> {
     )]
     pub identity_state_old: Box<Account<'info, IdentityState>>,
 
-    /*#[account(
+    #[account(
         mut,
         seeds = [b"mint", user_old.key().as_ref()],
         bump,
     )]
     pub mint_old: InterfaceAccount<'info, Mint>,
-
     #[account(mut,
         associated_token::mint = mint_old,
         associated_token::authority = user_old,
         associated_token::token_program = token_program)]
-    pub token_account_old: InterfaceAccount<'info, TokenAccount>,*/
+    pub token_account_old: InterfaceAccount<'info, TokenAccount>,    
   }
 #[derive(Accounts)]
 pub struct MintAnchor<'info> {

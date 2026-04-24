@@ -11,7 +11,6 @@ import {
   decodeIdentityPdaDev,
   decodeProtocolConfigDev,
   deriveValidatorState,
-  getAta,
   type IdentityStateAcctWeb3js,
   iamAnchorAddr,
   loadProofFixture,
@@ -30,7 +29,7 @@ import {
   acctEqual,
   acctIsNull,
   adminKp,
-  ataBalCk,
+  balcAtaCk,
   createChallenge,
   expireBlockhash,
   initializeProtocol,
@@ -58,6 +57,7 @@ const commitment = Buffer.alloc(32);
 let signerKp: Keypair;
 let expectedErr = "";
 let pdas: Pdas;
+const tokenProgram = TOKEN_2022_PROGRAM_ID;
 let rawAccData: Uint8Array<ArrayBufferLike> | undefined;
 let identity: IdentityStateAcctWeb3js;
 
@@ -113,8 +113,6 @@ test("iamAnchor.mintAnchor()", async () => {
   console.log("\n----------------== iamAnchor.mintAnchor()");
   signerKp = adminKp;
   pdas = pdasBySignerKp(signerKp);
-  const tokenProgram = TOKEN_2022_PROGRAM_ID;
-  const ata = getAta(pdas.mintPda, pdas.signer, false, tokenProgram);
   const initialCommitment = Buffer.from(fixture.public_inputs[1]);
 
   mintAnchor(
@@ -123,7 +121,7 @@ test("iamAnchor.mintAnchor()", async () => {
     pdas.identityPda,
     pdas.mintPda,
     mintAuthorityPda,
-    ata,
+    pdas.ata,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     tokenProgram,
     protocolConfigPda,
@@ -139,7 +137,7 @@ test("iamAnchor.mintAnchor()", async () => {
     initialCommitment,
   );
   acctEqual(identity.mint, pdas.mintPda);
-  ataBalCk(ata, BigInt(1), "IdentityMint", 0);
+  balcAtaCk(pdas.ata, BigInt(1), "IdentityMint", 0);
 });
 
 test("iamVerifier.createChallenge()", async () => {
@@ -194,8 +192,6 @@ test("iamAnchor.mintAnchor(): 2nd time from the same wallet should fail", async 
   );
   signerKp = adminKp;
   pdas = pdasBySignerKp(signerKp);
-  const tokenProgram = TOKEN_2022_PROGRAM_ID;
-  const ata = getAta(pdas.mintPda, pdas.signer, false, tokenProgram);
 
   expectedErr = "custom program error: 0x0";
   expireBlockhash();
@@ -205,7 +201,7 @@ test("iamAnchor.mintAnchor(): 2nd time from the same wallet should fail", async 
     pdas.identityPda,
     pdas.mintPda,
     mintAuthorityPda,
-    ata,
+    pdas.ata,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     tokenProgram,
     protocolConfigPda,

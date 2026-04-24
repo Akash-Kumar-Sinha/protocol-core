@@ -57,7 +57,7 @@ export const pdasBySignerKp = (signerKp: Keypair) => {
 };
 
 export const verifyUser = (signerKp: Keypair) => {
-  const { signer, identityPda, mintPda, nonce, challengePda, verificationPda } =
+  const { identityPda, mintPda, nonce, challengePda, verificationPda } =
     pdasBySignerKp(signerKp);
 
   createChallenge(signerKp, nonce, challengePda);
@@ -75,7 +75,6 @@ export const verifyUser = (signerKp: Keypair) => {
     verificationPda,
   );
   return {
-    signer,
     identityPda,
     mintPda,
     nonce,
@@ -109,7 +108,7 @@ export const readAcct = (acct1: PublicKey, acctOwner?: PublicKey) => {
   return rawAccountData;
 };
 export const balcSol = (target: PublicKey) => svm.getBalance(target);
-export const ataBalc = (
+export const balcAta = (
   ata: PublicKey,
   name = "token balc",
   isVerbose = true,
@@ -124,13 +123,13 @@ export const ataBalc = (
   if (isVerbose) console.log(name, ":", decoded.amount);
   return decoded.amount;
 };
-export const ataBalCk = (
+export const balcAtaCk = (
   ata: PublicKey,
   expectedAmount: bigint,
   name: string,
   decimals = 6,
 ) => {
-  const amount = ataBalc(ata, name, false);
+  const amount = balcAta(ata, name, false);
   console.log(name, "token:", amount, amount / BigInt(10 ** decimals));
   expect(amount).eq(expectedAmount);
 };
@@ -295,6 +294,8 @@ export const migrateIdentity = (
   treasury: PublicKey,
   wallet_old: PublicKey,
   identity_state_old: PublicKey,
+  mint_old: PublicKey,
+  token_account_old: PublicKey,
   expectedErr = "",
 ) => {
   const disc = [161, 192, 70, 80, 47, 37, 26, 10]; //copied from Anchor IDL
@@ -314,6 +315,8 @@ export const migrateIdentity = (
       { pubkey: treasury, isSigner: false, isWritable: true },
       { pubkey: wallet_old, isSigner: false, isWritable: false },
       { pubkey: identity_state_old, isSigner: false, isWritable: true },
+      { pubkey: mint_old, isSigner: false, isWritable: true },
+      { pubkey: token_account_old, isSigner: false, isWritable: true },
     ],
     programId: progAddr,
     data: Buffer.from([...disc]),

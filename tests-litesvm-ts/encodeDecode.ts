@@ -28,6 +28,7 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { Keypair, PublicKey } from "@solana/web3.js";
@@ -92,20 +93,31 @@ export const [vaultPda] = PublicKey.findProgramAddressSync(
 );
 //-------------==
 export type Pdas = {
-  signer: PublicKey;
   identityPda: PublicKey;
   mintPda: PublicKey;
   nonce: number[];
   challengePda: PublicKey;
   verificationPda: PublicKey;
+  ata: PublicKey;
 };
-export const getPdas = (signer: PublicKey): Pdas => {
+export const getPdas = (
+  signer: PublicKey,
+  tokenProgram = TOKEN_2022_PROGRAM_ID,
+): Pdas => {
   const [identityPda] = deriveIdentityPda(signer);
   const [mintPda] = deriveMintPda(signer);
   const nonce = generateNonce();
   const [challengePda] = deriveChallengePda(signer, nonce);
   const [verificationPda] = deriveVerificationPda(signer, nonce);
-  return { signer, identityPda, mintPda, nonce, challengePda, verificationPda };
+  const ata = getAta(mintPda, signer, false, tokenProgram);
+  return {
+    identityPda,
+    mintPda,
+    nonce,
+    challengePda,
+    verificationPda,
+    ata,
+  };
 };
 
 //-----------==

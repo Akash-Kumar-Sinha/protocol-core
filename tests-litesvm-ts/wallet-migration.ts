@@ -9,7 +9,6 @@ import {
   BASE_TRUST_INCREMENT,
   CHALLENGE_EXPIRY,
   decodeIdentityPdaDev,
-  getAta,
   type IdentityStateAcctWeb3js,
   iamAnchorAddr,
   loadProofFixture,
@@ -24,13 +23,15 @@ import {
 import {
   acctEqual,
   acctIsNull,
+  admin,
   adminKp,
-  ataBalCk,
   authorizeNewWallet,
+  balcAtaCk,
   balcSol,
   day,
   defaultRecentTimestamps,
   expectTheSameArray,
+  expireBlockhash,
   getJsTime,
   getSolTime,
   initializeProtocol,
@@ -42,6 +43,7 @@ import {
   user1,
   user1Kp,
   warpTime,
+  zero,
 } from "./litesvm-utils.ts";
 
 /*
@@ -56,7 +58,7 @@ const commitment = Buffer.alloc(32);
 commitment.write("initial_commitment_test", "utf-8");
 
 let signerKp: Keypair;
-let signer2Kp: Keypair;
+let newWalletKp: Keypair;
 const _expectedErr = "";
 let pdas: Pdas;
 const tokenProgram = TOKEN_2022_PROGRAM_ID;
@@ -65,7 +67,7 @@ let identity: IdentityStateAcctWeb3js;
 let identityOld: IdentityStateAcctWeb3js;
 const tInit = getJsTime();
 let t0: bigint;
-let t1: bigint;
+const one = BigInt(1);
 
 setTime(tInit);
 //Follow z-e2e.ts tests
@@ -85,11 +87,36 @@ test("registry.initializeProtocol()", async () => {
   );
 });
 
+test("iamAnchor.migrateIdentity() should fail by user1 with empty Old Identity", async () => {
+  console.log(
+    "\n----------------== iamAnchor.migrateIdentity() should fail by user1 with empty Old Identity",
+  );
+  signerKp = user1Kp;
+  pdas = pdasBySignerKp(signerKp);
+  const pdasAdmin = pdasBySignerKp(adminKp);
+
+  migrateIdentity(
+    signerKp,
+    pdas.identityPda,
+    pdas.mintPda,
+    mintAuthorityPda,
+    pdas.ata,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    tokenProgram,
+    protocolConfigPda,
+    treasuryPda,
+    admin,
+    pdasAdmin.mintPda,
+    pdasAdmin.identityPda,
+    pdasAdmin.ata,
+    "AnchorError caused by account: identity_state_old. Error Code: AccountNotInitialized. Error Number: 3012. Error Message: The program expected this account to be already initialized.",
+  );
+});
+
 test("iamAnchor.mintAnchor() by admin", async () => {
   console.log("\n----------------== iamAnchor.mintAnchor() by admin");
   signerKp = adminKp;
   pdas = pdasBySignerKp(signerKp);
-  const ata = getAta(pdas.mintPda, pdas.signer, false, tokenProgram);
   const initialCommitment = Buffer.from(fixture.public_inputs[1]);
 
   warpTime(5 * day + 5);
@@ -100,7 +127,7 @@ test("iamAnchor.mintAnchor() by admin", async () => {
     pdas.identityPda,
     pdas.mintPda,
     mintAuthorityPda,
-    ata,
+    pdas.ata,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     tokenProgram,
     protocolConfigPda,
@@ -116,55 +143,17 @@ test("iamAnchor.mintAnchor() by admin", async () => {
 test("iamAnchor.authorizeNewWallet()", async () => {
   console.log("\n----------------== iamAnchor.authorizeNewWallet()");
   signerKp = adminKp;
-  signer2Kp = user1Kp;
+  newWalletKp = user1Kp;
   pdas = pdasBySignerKp(signerKp); //{signer, identityPda, mintPda, nonce, challengePda, verificationPda }
 
   warpTime(13 * day + 7);
-  authorizeNewWallet(adminKp, pdas.identityPda, signer2Kp);
+  authorizeNewWallet(adminKp, pdas.identityPda, newWalletKp);
   rawAccData = readAcct(pdas.identityPda, iamAnchorAddr);
   identity = decodeIdentityPdaDev(rawAccData);
   identityOld = identity;
   acctEqual(identity.owner, signerKp.publicKey);
   console.log("user1:", user1.toBase58());
-  acctEqual(identity.new_wallet, signer2Kp.publicKey);
-});
-
-test("iamAnchor.mintAnchor() by user1", async () => {
-  console.log("\n----------------== iamAnchor.mintAnchor() by user1");
-  signerKp = user1Kp;
-  pdas = pdasBySignerKp(signerKp);
-  const ata = getAta(pdas.mintPda, pdas.signer, false, tokenProgram);
-  const initialCommitment = Buffer.from(fixture.public_inputs[1]);
-
-  warpTime(33 * day + 3);
-  t1 = getSolTime();
-  mintAnchor(
-    signerKp,
-    initialCommitment,
-    pdas.identityPda,
-    pdas.mintPda,
-    mintAuthorityPda,
-    ata,
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-    tokenProgram,
-    protocolConfigPda,
-    treasuryPda,
-  );
-  rawAccData = readAcct(pdas.identityPda, iamAnchorAddr);
-  identity = decodeIdentityPdaDev(rawAccData);
-  acctEqual(identity.owner, signerKp.publicKey);
-  expect(identity.verification_count).to.equal(0);
-  expect(identity.trust_score).to.equal(0);
-  console.log("expected initialCommitment:", initialCommitment.buffer);
-  expect(Buffer.from(identity.current_commitment)).to.deep.equal(
-    initialCommitment,
-  );
-  acctEqual(identity.mint, pdas.mintPda);
-  ataBalCk(ata, BigInt(1), "IdentityMint", 0);
-
-  expect(identity.creation_timestamp).to.equal(t1);
-  expect(identity.last_verification_timestamp).to.equal(t1);
-  expectTheSameArray(identity.recent_timestamps, defaultRecentTimestamps);
+  acctEqual(identity.new_wallet, newWalletKp.publicKey);
 });
 
 test("iamAnchor.migrateIdentity() by user1", async () => {
@@ -172,20 +161,24 @@ test("iamAnchor.migrateIdentity() by user1", async () => {
   signerKp = user1Kp;
   pdas = pdasBySignerKp(signerKp);
   const pdasAdmin = pdasBySignerKp(adminKp);
-  const ata = getAta(pdas.mintPda, pdas.signer, false, tokenProgram);
 
+  console.log("iamAnchor:", iamAnchorAddr.toBase58());
+  balcAtaCk(pdasAdmin.ata, one, "Mint_Old", 0);
+  expireBlockhash();
   migrateIdentity(
     signerKp,
     pdas.identityPda,
     pdas.mintPda,
     mintAuthorityPda,
-    ata,
+    pdas.ata,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     tokenProgram,
     protocolConfigPda,
     treasuryPda,
-    pdasAdmin.signer,
+    admin,
     pdasAdmin.identityPda,
+    pdasAdmin.mintPda,
+    pdasAdmin.ata,
   );
   rawAccData = readAcct(pdas.identityPda, iamAnchorAddr);
   identity = decodeIdentityPdaDev(rawAccData);
@@ -203,11 +196,12 @@ test("iamAnchor.migrateIdentity() by user1", async () => {
   );
   expectTheSameArray(identity.recent_timestamps, identityOld.recent_timestamps);
   acctEqual(identity.mint, pdas.mintPda);
-  console.log("t0", t0, ", t1", t1);
+  console.log("t0", t0);
 
   expect(balcSol(pdasAdmin.identityPda)).eq(null);
   acctIsNull(pdasAdmin.identityPda);
-  //TODO: test fail:
+  balcAtaCk(pdasAdmin.ata, zero, "Mint_Old", 0);
+  //TODO: authorize_new_wallet shouild delegate ata_old to this program
   //TODO: Make TokenProgram to close old Mint and burn tokens, close TokenAccount...
   //acctIsNull(pdasAdmin.mintPda);
   //acctIsNull(ata);

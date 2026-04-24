@@ -18,7 +18,7 @@ import {
 import {
   acctEqual,
   adminKp,
-  ataBalCk,
+  balcAtaCk,
   expireBlockhash,
   getJsTime,
   initializeProtocol,
@@ -106,7 +106,7 @@ test("iamAnchor.mintAnchor() to establish baseline", async () => {
     initialCommitment,
   );
   expect(decoded.last_reset_timestamp).to.equal(BigInt(0));
-  ataBalCk(ata, BigInt(1), "IdentityMint", 0);
+  balcAtaCk(ata, BigInt(1), "IdentityMint", 0);
 });
 
 test("iamAnchor.resetIdentityState() happy path on fresh mint", async () => {
