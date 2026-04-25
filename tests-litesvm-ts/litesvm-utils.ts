@@ -1,8 +1,9 @@
-import { AccountLayout } from "@solana/spl-token";
+import { AccountLayout, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
+  SystemProgram,
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
@@ -14,7 +15,14 @@ import {
   type SimulatedTransactionInfo,
   TransactionMetadata,
 } from "litesvm";
-import { numToBytes } from "./encodeDecode.ts";
+import {
+  getPdas,
+  entrosAnchorAddr,
+  loadProofFixture,
+  numToBytes,
+  registryAddr,
+  verifierAddr,
+} from "./encodeDecode.ts";
 
 export let svm = new LiteSVM();
 export const zero = BigInt(0);
@@ -33,23 +41,49 @@ svm.airdrop(owner, initSolBalc);
 svm.airdrop(admin, initSolBalc);
 svm.airdrop(user1, initSolBalc);
 
-export const iamAnchorAddr = new PublicKey(
-  "GZYwTp2ozeuRA5Gof9vs4ya961aANcJBdUzB7LN6q4b2",
-);
-console.log("iamAnchorAddr:", iamAnchorAddr.toBase58());
-
-export const registryAddr = new PublicKey(
-  "6VBs3zr9KrfFPGd6j7aGBPQWwZa5tajVfA7HN6MMV9VW",
-);
-console.log("registryAddr:", registryAddr.toBase58());
-
-export const verifierAddr = new PublicKey(
-  "4F97jNoxQzT2qRbkWpW3ztC3Nz2TtKj3rnKG8ExgnrfV",
-);
-console.log("verifierAddr:", verifierAddr.toBase58());
-
 export const SYSTEM_PROGRAM = new PublicKey("11111111111111111111111111111111"); //default or anchor.web3.SystemProgram.programId
+export const pdasAdmin = getPdas(admin);
+export const pdasUser1 = getPdas(user1);
+export const pdasBySignerKp = (signerKp: Keypair) => {
+  switch (signerKp.publicKey.toBase58()) {
+    case admin.toBase58():
+      return pdasAdmin;
+    case user1.toBase58():
+      return pdasUser1;
+    default: {
+      throw new Error("invalid signer");
+    }
+  }
+};
 
+export const verifyUser = (signerKp: Keypair) => {
+  const { signer, identityPda, mintPda, nonce, challengePda, verificationPda } =
+    pdasBySignerKp(signerKp);
+
+  createChallenge(signerKp, nonce, challengePda);
+
+  const fixture = loadProofFixture();
+
+  const proofBytes: Buffer<ArrayBuffer> = Buffer.from(fixture.proof_bytes); // for Rust Vec<u8>
+  const publicInputs: number[][] = fixture.public_inputs; // for Rust Vec<[u8; 32]>
+  verifyProof(
+    signerKp,
+    proofBytes,
+    publicInputs,
+    nonce,
+    challengePda,
+    verificationPda,
+  );
+  return {
+    signer,
+    identityPda,
+    mintPda,
+    nonce,
+    challengePda,
+    verificationPda,
+    fixture,
+  };
+};
 //-------------==
 export const acctIsNull = (account: PublicKey) => {
   const raw = svm.getAccount(account);
@@ -99,7 +133,7 @@ export const ataBalCk = (
   console.log(name, "token:", amount, amount / BigInt(10 ** decimals));
   expect(amount).eq(expectedAmount);
 };
-//-------------== iamRegistry Program Methods
+//-------------== entrosRegistry Program Methods
 export const initializeProtocol = (
   signer: Keypair,
   protocol_config: PublicKey,
@@ -108,6 +142,7 @@ export const initializeProtocol = (
   max_trust_score: number, //u16,
   base_trust_increment: number, //u16,
   verification_fee: bigint,
+  expectedErr = "",
 ) => {
   const disc = [188, 233, 252, 106, 134, 146, 202, 91]; //copied from Anchor IDL
   const progAddr = registryAddr;
@@ -131,9 +166,59 @@ export const initializeProtocol = (
     programId: progAddr,
     data: Buffer.from([...disc, ...argData]),
   });
-  sendTxns(blockhash, [ix], [signer], progAddr);
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
-//-------------== iamAnchor Program Methods
+
+export const updateProtocolConfig = (
+  signer: Keypair, //admin
+  verification_fee: bigint,
+  protocol_config: PublicKey,
+  expectedErr = "",
+) => {
+  const disc = [197, 97, 123, 54, 221, 168, 11, 135]; //copied from Anchor IDL
+  const progAddr = registryAddr;
+
+  const argData = [...numToBytes(verification_fee)];
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: protocol_config, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: progAddr,
+    data: Buffer.from([...disc, ...argData]),
+  });
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
+};
+
+export const registerValidator = (
+  signer: Keypair, //admin
+  min_stake: bigint,
+  protocol_config: PublicKey,
+  validator_state: PublicKey,
+  vault: PublicKey,
+  expectedErr = "",
+) => {
+  const disc = [118, 98, 251, 58, 81, 30, 13, 240]; //copied from Anchor IDL
+  const progAddr = registryAddr;
+
+  const argData = [...numToBytes(min_stake)];
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: protocol_config, isSigner: false, isWritable: true },
+      { pubkey: validator_state, isSigner: false, isWritable: true },
+      { pubkey: vault, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: progAddr,
+    data: Buffer.from([...disc, ...argData]),
+  });
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
+};
+//-------------== entrosAnchor Program Methods
 export const mintAnchor = (
   signer: Keypair,
   commitment: Buffer<ArrayBuffer>,
@@ -141,14 +226,14 @@ export const mintAnchor = (
   mint: PublicKey,
   mintAuthority: PublicKey,
   tokenAccount: PublicKey,
-  associatedTokenProgram: PublicKey,
+  associatedTokenProgram = ASSOCIATED_TOKEN_PROGRAM_ID,
   tokenProgram: PublicKey,
-  //systemProgram: PublicKey,
   protocol_config: PublicKey,
   treasury: PublicKey,
+  expectedErr = "",
 ) => {
   const disc = [68, 56, 113, 102, 236, 152, 146, 60]; //copied from Anchor IDL
-  const progAddr = iamAnchorAddr;
+  const progAddr = entrosAnchorAddr;
   const argData = [...commitment];
   const blockhash = svm.latestBlockhash();
   const ix = new TransactionInstruction({
@@ -167,19 +252,50 @@ export const mintAnchor = (
     programId: progAddr,
     data: Buffer.from([...disc, ...argData]),
   });
-  sendTxns(blockhash, [ix], [signer], progAddr);
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
 
 export const updateAnchor = (
   signer: Keypair,
   new_commitment: Buffer<ArrayBuffer>,
+  verification_nonce: number[],
+  verification_result: PublicKey,
   identity_state: PublicKey,
   protocol_config: PublicKey,
   treasury: PublicKey,
-  //systemProgram: PublicKey,
+  expectedErr = "",
 ) => {
   const disc = [120, 192, 72, 245, 112, 246, 119, 135]; //copied from Anchor IDL
-  const progAddr = iamAnchorAddr;
+  const progAddr = entrosAnchorAddr;
+  const new_commitment_array = Array.from(new_commitment);
+  console.log("new_commitment_array:", new_commitment_array);
+  const argData = [...new_commitment_array, ...verification_nonce];
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: identity_state, isSigner: false, isWritable: true },
+      { pubkey: verification_result, isSigner: false, isWritable: true },
+      { pubkey: protocol_config, isSigner: false, isWritable: false }, //belongs to registry
+      { pubkey: treasury, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: progAddr,
+    data: Buffer.from([...disc, ...argData]),
+  });
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
+};
+
+export const resetIdentityState = (
+  signer: Keypair,
+  new_commitment: Buffer<ArrayBuffer>,
+  identity_state: PublicKey,
+  protocol_config: PublicKey,
+  treasury: PublicKey,
+  expectedErr = "",
+) => {
+  const disc = [26, 78, 86, 143, 247, 132, 85, 203]; //copied from Anchor IDL
+  const progAddr = entrosAnchorAddr;
   const argData = [...new_commitment];
   const blockhash = svm.latestBlockhash();
   const ix = new TransactionInstruction({
@@ -193,14 +309,14 @@ export const updateAnchor = (
     programId: progAddr,
     data: Buffer.from([...disc, ...argData]),
   });
-  sendTxns(blockhash, [ix], [signer], progAddr);
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
 
 export const createChallenge = (
   signer: Keypair, //challenger
   nonce: number[],
   challengePda: PublicKey,
-  //systemProgram: PublicKey,
+  expectedErr = "",
 ) => {
   const disc = [170, 244, 47, 1, 1, 15, 173, 239]; //copied from Anchor IDL
   const progAddr = verifierAddr;
@@ -215,7 +331,43 @@ export const createChallenge = (
     programId: progAddr,
     data: Buffer.from([...disc, ...argData]),
   });
-  sendTxns(blockhash, [ix], [signer], progAddr);
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
+};
+
+export const verifyProof = (
+  signer: Keypair, //challenger
+  proofBytes: Buffer<ArrayBuffer>, // Vec<u8>
+  publicInputs: number[][], // Vec<[u8; 32]>
+  nonce: number[], // [u8; 32]
+  challengePda: PublicKey,
+  verificationPda: PublicKey,
+  expectedErr = "",
+) => {
+  const disc = [217, 211, 191, 110, 144, 13, 186, 98]; //copied from Anchor IDL
+  const progAddr = verifierAddr;
+  const proofLen = Buffer.alloc(4);
+  proofLen.writeUInt32LE(proofBytes.length, 0);
+  const publicInputsLen = Buffer.alloc(4);
+  publicInputsLen.writeUInt32LE(publicInputs.length, 0);
+  const argData = [
+    ...proofLen,
+    ...proofBytes,
+    ...publicInputsLen,
+    ...publicInputs.flat(1),
+    ...nonce,
+  ];
+  const blockhash = svm.latestBlockhash();
+  const ix = new TransactionInstruction({
+    keys: [
+      { pubkey: signer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: challengePda, isSigner: false, isWritable: true },
+      { pubkey: verificationPda, isSigner: false, isWritable: true },
+      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
+    ],
+    programId: progAddr,
+    data: Buffer.from([...disc, ...argData]),
+  });
+  sendTxns(blockhash, [ix], [signer], progAddr, expectedErr);
 };
 
 //-------------== Time Manipulation
@@ -235,6 +387,11 @@ export const warpTime = (seconds: number) => {
   clock.unixTimestamp += BigInt(seconds);
   svm.setClock(clock);
 };
+export const warpSlot = (newSlot: number) => {
+  svm.warpToSlot(BigInt(newSlot));
+  const slot1 = svm.getClock().slot;
+  console.log("new slot:", slot1);
+};
 //-------------== Deployment
 export const deployProgram = (
   programPath: string,
@@ -250,15 +407,17 @@ export const deployProgram = (
   //solana program dump progAddr pyth.so --url mainnet-beta
   svm.addProgramFromFile(programId, programPath);
 };
-deployProgram("target/deploy/iam_anchor.so", iamAnchorAddr);
-acctExists(iamAnchorAddr);
-deployProgram("target/deploy/iam_registry.so", registryAddr);
+deployProgram("target/deploy/entros_anchor.so", entrosAnchorAddr);
+acctExists(entrosAnchorAddr);
+deployProgram("target/deploy/entros_registry.so", registryAddr);
 acctExists(registryAddr);
-deployProgram("target/deploy/iam_verifier.so", verifierAddr);
+deployProgram("target/deploy/entros_verifier.so", verifierAddr);
 acctExists(verifierAddr);
 console.log("program deployment is successful");
 
 //-------------== Send Transactions
+export const expireBlockhash = () => svm.expireBlockhash();
+
 export const sendTxns = (
   blockhash: string,
   ixs: TransactionInstruction[],
@@ -273,6 +432,30 @@ export const sendTxns = (
   const simRes = svm.simulateTransaction(tx);
   const sendRes = svm.sendTransaction(tx);
   checkLogs(simRes, sendRes, programId, expectedError);
+};
+//-------------== Send SOL
+export const sendSol = (
+  signer: Keypair,
+  receiver: PublicKey,
+  transferLamports = BigInt(1_000_000),
+  expectedError = "",
+) => {
+  //const receiver = PublicKey.unique();
+  const blockhash = svm.latestBlockhash();
+  const ixs = [
+    SystemProgram.transfer({
+      fromPubkey: signer.publicKey,
+      toPubkey: receiver,
+      lamports: transferLamports,
+    }),
+  ];
+  const tx = new Transaction();
+  tx.recentBlockhash = blockhash;
+  tx.add(...ixs);
+  tx.sign(signer);
+  const simRes = svm.simulateTransaction(tx);
+  const sendRes = svm.sendTransaction(tx);
+  checkLogs(simRes, sendRes, SYSTEM_PROGRAM, expectedError);
 };
 export const checkLogs = (
   simRes: FailedTransactionMetadata | SimulatedTransactionInfo,
@@ -316,8 +499,9 @@ export const checkLogs = (
     console.log("sendRes.toString():", errStr);
     const pos = errStr.search("custom program error: 0x");
     console.log("pos:", pos);
+    let errCode = "";
     if (pos > -1) {
-      let errCode = errStr.substring(pos + 22, pos + 26);
+      errCode = errStr.substring(pos + 22, pos + 28);
       if (errCode.slice(-1) === '"') {
         //console.log("last char:", errCode.slice(-1));
         errCode = errCode.slice(0, -1);
@@ -328,13 +512,22 @@ export const checkLogs = (
       "find error here: https://docs.rs/solana-sdk/latest/solana_sdk/transaction/enum.TransactionError.html",
     );
     if (expectedError) {
-      const foundErrorMesg = sendRes
-        .toString()
-        .includes(`custom program error: ${expectedError}`);
+      const foundErrorMesg = sendRes.toString().includes(`${expectedError}`);
       console.log("found error?:", foundErrorMesg);
       expect(foundErrorMesg).eq(true);
     } else {
-      throw new Error("This error is unexpected");
+      const pos1 = errStr.search("Program log");
+      console.log("pos1:", pos1);
+      const pos2 = errStr.search("consumed");
+      console.log("pos2:", pos2);
+      let err_mesg = "";
+      if (pos1 > -1 && pos2 > -1) {
+        err_mesg = errStr.substring(pos1, pos2);
+        //console.log("err_mesg:", err_mesg);
+      }
+      throw new Error(
+        `Unexpected error: ${err_mesg}  errCode: ${errCode}, ${Number(errCode)}`,
+      );
     }
   }
 };

@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type {
   Address,
   FixedSizeDecoder,
@@ -24,7 +26,7 @@ import {
   lamports,
 } from "@solana/kit";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { iamAnchorAddr, registryAddr, verifierAddr } from "./litesvm-utils.ts";
+import { entrosAnchorAddr, registryAddr, verifierAddr } from "./litesvm-utils.ts";
 
 //-----------==
 export const [treasuryPda] = PublicKey.findProgramAddressSync(
@@ -32,8 +34,12 @@ export const [treasuryPda] = PublicKey.findProgramAddressSync(
   registryAddr,
 );
 console.log("treasuryPda:", treasuryPda.toBase58());
-//-----------== iamVerifier
-//export const loadProofFixture = () => {}
+//-----------== entrosVerifier
+// Load pre-generated Groth16 proof fixture
+export const loadProofFixture = () =>
+  JSON.parse(
+    fs.readFileSync(path.resolve("tests/fixtures/test_proof.json"), "utf-8"),
+  );
 
 export const generateNonce = (): number[] =>
   Array.from(Keypair.generate().publicKey.toBytes());
@@ -47,15 +53,26 @@ export const deriveVerificationPda = (verifier: PublicKey, nonce: number[]) =>
     [Buffer.from("verification"), verifier.toBuffer(), Buffer.from(nonce)],
     verifierAddr,
   );
-//-----------== iamAnchor
+export const deriveValidatorState = (validator: PublicKey) =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from("validator"), validator.toBuffer()],
+    registryAddr,
+  );
+
+export const [vaultPda] = PublicKey.findProgramAddressSync(
+  [Buffer.from("vault")],
+  registryAddr,
+);
+
+//-----------== entrosAnchor
 export const deriveMintPda = (user: PublicKey) =>
   PublicKey.findProgramAddressSync(
     [Buffer.from("mint"), user.toBuffer()],
-    iamAnchorAddr,
+    entrosAnchorAddr,
   );
 export const [mintAuthorityPda] = PublicKey.findProgramAddressSync(
   [Buffer.from("mint_authority")],
-  iamAnchorAddr,
+  entrosAnchorAddr,
 );
 console.log("mintAuthorityPda:", mintAuthorityPda.toBase58());
 
@@ -63,7 +80,7 @@ console.log("mintAuthorityPda:", mintAuthorityPda.toBase58());
 export const deriveIdentityPda = (user: PublicKey) =>
   PublicKey.findProgramAddressSync(
     [Buffer.from("identity"), user.toBuffer()],
-    iamAnchorAddr,
+    entrosAnchorAddr,
   );
 export type IdentityStateAcct = {
   anchorDiscriminator: ReadonlyUint8Array;
@@ -76,6 +93,7 @@ export type IdentityStateAcct = {
   mint: Address;
   bump: number;
   recent_timestamps: bigint[]; //len = 52; BigInt64Array
+  last_reset_timestamp: bigint;
 };
 export const identityStateAcctDecoder: FixedSizeDecoder<IdentityStateAcct> =
   getStructDecoder([
@@ -89,6 +107,7 @@ export const identityStateAcctDecoder: FixedSizeDecoder<IdentityStateAcct> =
     ["mint", getAddressDecoder()],
     ["bump", getU8Decoder()],
     ["recent_timestamps", getArrayDecoder(getI64Decoder(), { size: 52 })],
+    ["last_reset_timestamp", getI64Decoder()],
   ]);
 export const decodeIdentityState = (
   bytes: ReadonlyUint8Array | Uint8Array<ArrayBufferLike>,
@@ -127,6 +146,7 @@ export const decodeIdentityStateWeb3js = (
     current_commitment: decoded.current_commitment,
     mint: new PublicKey(decoded.mint.toString()),
     recent_timestamps: decoded.recent_timestamps,
+    last_reset_timestamp: decoded.last_reset_timestamp,
   };
   return decodedV1;
 };
@@ -140,6 +160,7 @@ export type IdentityStateAcctWeb3js = {
   mint: PublicKey;
   bump: number;
   recent_timestamps: bigint[];
+  last_reset_timestamp: bigint;
 };
 //-----------== ProtocolConfigPDA
 export const [protocolConfigPda, protocolConfigBump] =

@@ -27,7 +27,7 @@ import {
   createChallenge,
   day,
   getJsTime,
-  iamAnchorAddr,
+  entrosAnchorAddr,
   initializeProtocol,
   mintAnchor,
   readAcct,
@@ -105,7 +105,7 @@ test("registry.mintAnchor()", async () => {
     protocolConfigPda,
     treasuryPda,
   );
-  const rawAccountData = readAcct(identityPda, iamAnchorAddr);
+  const rawAccountData = readAcct(identityPda, entrosAnchorAddr);
   const decoded = decodeIdentityStateWeb3js(rawAccountData);
   acctEqual(decoded.owner, signer);
   expect(decoded.verification_count).to.equal(0);
@@ -116,7 +116,7 @@ test("registry.mintAnchor()", async () => {
   ataBalCk(ata, BigInt(1), "IdentityMint", 0);
 });
 
-test("iamAnchor.updateAnchor()", async () => {
+test("entrosAnchor.updateAnchor()", async () => {
   //update_anchor() at T=0 → trust score = 100
   signerKp = adminKp;
   signer = signerKp.publicKey;
@@ -138,7 +138,7 @@ test("iamAnchor.updateAnchor()", async () => {
   trustscorePrev = decoded.trust_score;
 });
 
-test("iamAnchor.updateAnchor() 2nd & 3rd time", async () => {
+test("entrosAnchor.updateAnchor() 2nd & 3rd time", async () => {
   //warp 1 day + create_challenge + verify_proof + update_anchor: trust score should be ~196
   signerKp = adminKp;
   signer = signerKp.publicKey;
@@ -178,7 +178,7 @@ test("iamAnchor.updateAnchor() 2nd & 3rd time", async () => {
   expect(decoded3.trust_score).greaterThan(trustscorePrev); //311
 });
 
-test("iamVerifier.createChallenge()", async () => {
+test("entrosVerifier.createChallenge()", async () => {
   signerKp = adminKp;
   signer = signerKp.publicKey;
 
@@ -188,3 +188,8 @@ test("iamVerifier.createChallenge()", async () => {
 
   createChallenge(signerKp, nonce, challengePda);
 });
+/* challengeExpiry test:
+const fixture = loadProofFixture();
+const proofBytes = Buffer.from(fixture.proof_bytes); // Vec<u8>
+const publicInputs: number[][] = fixture.public_inputs; // Vec<[u8; 32]>
+*/
