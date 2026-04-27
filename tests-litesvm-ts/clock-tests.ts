@@ -3,16 +3,25 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
-import type { Keypair, PublicKey } from "@solana/web3.js";
-import { expect } from 
+import type { Keypair } from "@solana/web3.js";
+import { expect } from "chai";
 import {
-  BASE_TDev,
-  decodeProtocolConfigDb3js,
-  iamAnchorAddr,
-  loadProofFixtuityPda,
+  anchorAddr,
+  BASE_TRUST_INCREMENT,
+  CHALLENGE_EXPIRY,
+  decodeIdentityPdaDev,
+  decodeProtocolConfigDev,
+  type IdentityStateAcctWeb3js,
+  loadProofFixture,
+  MAX_TRUST_SCORE,
+  MIN_STAKE,
+  mintAuthorityPda,
+  type Pdas,
   protocolConfigBump,
   protocolConfigPda,
+  registryAddr,
   treasuryPda,
+  VERIFICATION_FEE,
 } from "./encodeDecode.ts";
 import {
   acctEqual,
@@ -23,13 +32,13 @@ import {
   balcAtaCk,
   balcSol,
   day,
-  entrosAnchorAddr,
   expectTheSameArray,
   getJsTime,
   initializeProtocol,
   migrateIdentity,
   mintAnchor,
-  read
+  pdasBySignerKp,
+  readAcct,
   setTime,
   updateAnchor,
   user1,
@@ -44,8 +53,7 @@ $ anchor build
 Then Install NodeJs v25.9.0(or above v22.18.0) to run this TypeScript Natively: node ./file_path/this_file.ts
 Or use Bun: bun test ./file_path/this_file.ts
 */
-const commitment = Buffer.alloc(32);
-commitment.write("initial_commitment_test", "utf-8");
+const fixture = loadProofFixture();
 
 let signerKp: Keypair;
 let newWalletKp: Keypair;
@@ -58,45 +66,42 @@ let identityOld: IdentityStateAcctWeb3js;
 setTime(getJsTime());
 
 test("registry.initializeProtocol()", async () => {
+  console.log("\n----------------== registry.initializeProtocol()");
   signerKp = adminKp;
-  signer = signerKp.publicKey;
-  const min_stake = BigInt(1_000_000_000);
-  const challenge_expiry = BigInt(300); //i64,
-  const max_trust_score = 10000; //u16,
-  const base_trust_increment = 100; //u16,
-  const verification_fee = BigInt(0);
+
   acctIsNull(protocolConfigPda);
   initializeProtocol(
     signerKp,
     protocolConfigPda,
-    min_stake,
-    challenge_expiry,
-    max_trust_score,
-    base_trust_increment,
-    verification_fee,
+    MIN_STAKE,
+    CHALLENGE_EXPIRY,
+    MAX_TRUST_SCORE,
+    BASE_TRUST_INCREMENT,
+    VERIFICATION_FEE,
   );
 
   const rawAccountData = readAcct(protocolConfigPda, registryAddr);
-  const decoded = decodeProtocolConfigWeb3js(rawAccountData);
-  acctEqual(decoded.admin, signer);
-  expect(decoded.min_stake).eq(min_stake);
-  expect(decoded.challenge_expiry).eq(challenge_expiry);
-  expect(decoded.max_trust_score).eq(max_trust_score);
-  expect(decoded.base_trust_increment).eq(base_trust_increment);
+  const decoded = decodeProtocolConfigDev(rawAccountData);
+  acctEqual(decoded.admin, signerKp.publicKey);
+  expect(decoded.min_stake).eq(MIN_STAKE);
+  expect(decoded.challenge_expiry).eq(CHALLENGE_EXPIRY);
+  expect(decoded.max_trust_score).eq(MAX_TRUST_SCORE);
+  expect(decoded.base_trust_increment).eq(BASE_TRUST_INCREMENT);
   expect(decoded.bump).eq(protocolConfigBump);
-  expect(decoded.verification_fee).eq(verification_fee);
+  expect(decoded.verification_fee).eq(VERIFICATION_FEE);
 });
 
 test("registry.mintAnchor()", async () => {
+  console.log("\n----------------== registry.mintAnchor()");
   signerKp = adminKp;
   pdas = pdasBySignerKp(signerKp);
   const initialCommitment = Buffer.from(fixture.public_inputs[1]);
 
   mintAnchor(
     signerKp,
-    commitment,
-    identityPda,
-    mintPda,
+    initialCommitment,
+    pdas.identityPda,
+    pdas.mintPda,
     mintAuthorityPda,
     pdas.ata,
     ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -104,7 +109,7 @@ test("registry.mintAnchor()", async () => {
     protocolConfigPda,
     treasuryPda,
   );
-  const rawAccountData = readAcct(pdas.identityPda, iamAnchorAddr);
+  const rawAccountData = readAcct(pdas.identityPda, anchorAddr);
   const decoded = decodeIdentityPdaDev(rawAccountData);
   acctEqual(decoded.owner, signerKp.publicKey);
   expect(decoded.verification_count).to.equal(0);
@@ -118,6 +123,7 @@ test("registry.mintAnchor()", async () => {
 });
 
 test("entrosAnchor.updateAnchor()", async () => {
+  console.log("\n----------------== entrosAnchor.updateAnchor()");
   //update_anchor() at T=0 → trust score = 100
   signerKp = adminKp;
   const { identityPda, nonce, verificationPda, fixture } = verifyUser(signerKp);
@@ -126,6 +132,8 @@ test("entrosAnchor.updateAnchor()", async () => {
   updateAnchor(
     signerKp,
     newCommitment,
+    nonce,
+    verificationPda,
     identityPda,
     protocolConfigPda,
     treasuryPda,
@@ -138,10 +146,8 @@ test("entrosAnchor.updateAnchor()", async () => {
   trustscorePrev = decoded.trust_score;
 });
 
-<<<<<<< HEAD
-test("iamAnchor.authorizeNewWallet()", async () =>
-{
-  console.log("\n----------------== iamAnchor.authorizeNewWallet()");
+test("entrosAnchor.authorizeNewWallet()", async () => {
+  console.log("\n----------------== entrosAnchor.authorizeNewWallet()");
   signerKp = adminKp;
   newWalletKp = user1Kp;
   pdas = pdasBySignerKp(signerKp); //{signer, identityPda, mintPda, nonce, challengePda, verificationPda }
@@ -155,16 +161,15 @@ test("iamAnchor.authorizeNewWallet()", async () =>
     pdas.mintPda,
     pdas.ata,
   );
-  rawAccData = readAcct(pdas.identityPda, iamAnchorAddr);
+  rawAccData = readAcct(pdas.identityPda, anchorAddr);
   identity = decodeIdentityPdaDev(rawAccData);
   acctEqual(identity.owner, signerKp.publicKey);
   console.log("user1:", user1.toBase58());
   acctEqual(identity.new_wallet, newWalletKp.publicKey);
-}
-)
+});
 
-test("iamAnchor.migrateIdentity() by user1", async () => {
-  console.log("\n----------------== iamAnchor.migrateIdentity() by user1");
+test("entrosAnchor.migrateIdentity() by user1", async () => {
+  console.log("\n----------------== entrosAnchor.migrateIdentity() by user1");
   signerKp = user1Kp;
   pdas = pdasBySignerKp(signerKp);
   const pdasAdmin = pdasBySignerKp(adminKp);
@@ -184,7 +189,7 @@ test("iamAnchor.migrateIdentity() by user1", async () => {
     pdasAdmin.mintPda,
     pdasAdmin.ata,
   );
-  rawAccData = readAcct(pdas.identityPda, iamAnchorAddr);
+  rawAccData = readAcct(pdas.identityPda, anchorAddr);
   identity = decodeIdentityPdaDev(rawAccData);
   acctEqual(identity.owner, signerKp.publicKey);
 
@@ -216,15 +221,13 @@ test("iamAnchor.migrateIdentity() by user1", async () => {
 });
 
 // TODO: A second successful updateAnchor would need another fixture proof where commitment_prev = public_inputs[0] of the first, which means regenerating fixtures
-test.skip("iamAnchor.updateAnchor() 2nd & 3rd time", async () => {
-  console.log("\n----------------== iamAnchor.updateAnchor() 2nd & 3rd time");
-=======
-test("entrosAnchor.updateAnchor() 2nd & 3rd time", async () => {
->>>>>>> upstream/develop
+test.skip("entrosAnchor.updateAnchor() 2nd & 3rd time", async () => {
+  console.log(
+    "\n----------------== entrosAnchor.updateAnchor() 2nd & 3rd time",
+  );
   //warp 1 day + create_challenge + verify_proof + update_anchor: trust score should be ~196
   signerKp = adminKp;
-  signer = signerKp.publicKey;
-  const [identityPda] = deriveIdentityPda(signer);
+  const { identityPda, nonce, verificationPda } = pdasBySignerKp(signerKp);
   const newCommitment = Buffer.alloc(32);
   newCommitment.write("updated_commitment_v2!", "utf-8");
 
@@ -233,12 +236,14 @@ test("entrosAnchor.updateAnchor() 2nd & 3rd time", async () => {
   updateAnchor(
     signerKp,
     newCommitment,
+    nonce,
+    verificationPda,
     identityPda,
     protocolConfigPda,
     treasuryPda,
   );
   const rawAccountData = readAcct(identityPda);
-  const decoded = decodeIdentityStateWeb3js(rawAccountData);
+  const decoded = decodeIdentityPdaDev(rawAccountData);
   expect(decoded.verification_count).to.equal(2);
   expect(decoded.trust_score).greaterThan(trustscorePrev); //198
   trustscorePrev = decoded.trust_score;
@@ -250,31 +255,14 @@ test("entrosAnchor.updateAnchor() 2nd & 3rd time", async () => {
   updateAnchor(
     signerKp,
     newCommitment3,
+    nonce,
+    verificationPda,
     identityPda,
     protocolConfigPda,
     treasuryPda,
   );
   const rawAccountData3 = readAcct(identityPda);
-  const decoded3 = decodeIdentityStateWeb3js(rawAccountData3);
+  const decoded3 = decodeIdentityPdaDev(rawAccountData3);
   expect(decoded3.verification_count).to.equal(3);
   expect(decoded3.trust_score).greaterThan(trustscorePrev); //311
 });
-<<<<<<< HEAD
-=======
-
-test("entrosVerifier.createChallenge()", async () => {
-  signerKp = adminKp;
-  signer = signerKp.publicKey;
-
-  const nonce = generateNonce(); // array of 32 u8 in Anchor IDL
-  const [challengePda] = deriveChallengePda(signer, nonce);
-  const [_verificationPda] = deriveVerificationPda(signer, nonce);
-
-  createChallenge(signerKp, nonce, challengePda);
-});
-/* challengeExpiry test:
-const fixture = loadProofFixture();
-const proofBytes = Buffer.from(fixture.proof_bytes); // Vec<u8>
-const publicInputs: number[][] = fixture.public_inputs; // Vec<[u8; 32]>
-*/
->>>>>>> upstream/develop

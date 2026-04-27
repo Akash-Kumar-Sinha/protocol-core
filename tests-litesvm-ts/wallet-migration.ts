@@ -6,11 +6,11 @@ import {
 import type { Keypair } from "@solana/web3.js";
 import { expect } from "chai";
 import {
+  anchorAddr,
   BASE_TRUST_INCREMENT,
   CHALLENGE_EXPIRY,
   decodeIdentityPdaDev,
   type IdentityStateAcctWeb3js,
-  iamAnchorAddr,
   loadProofFixture,
   MAX_TRUST_SCORE,
   MIN_STAKE,
@@ -87,9 +87,9 @@ test("registry.initializeProtocol()", async () => {
   );
 });
 
-test("iamAnchor.migrateIdentity() should fail by user1 with empty Old Identity", async () => {
+test("entrosAnchor.migrateIdentity() should fail by user1 with empty Old Identity", async () => {
   console.log(
-    "\n----------------== iamAnchor.migrateIdentity() should fail by user1 with empty Old Identity",
+    "\n----------------== entrosAnchor.migrateIdentity() should fail by user1 with empty Old Identity",
   );
   signerKp = user1Kp;
   pdas = pdasBySignerKp(signerKp);
@@ -113,8 +113,8 @@ test("iamAnchor.migrateIdentity() should fail by user1 with empty Old Identity",
   );
 });
 
-test("iamAnchor.mintAnchor() by admin", async () => {
-  console.log("\n----------------== iamAnchor.mintAnchor() by admin");
+test("entrosAnchor.mintAnchor() by admin", async () => {
+  console.log("\n----------------== entrosAnchor.mintAnchor() by admin");
   signerKp = adminKp;
   pdas = pdasBySignerKp(signerKp);
   const initialCommitment = Buffer.from(fixture.public_inputs[1]);
@@ -133,15 +133,15 @@ test("iamAnchor.mintAnchor() by admin", async () => {
     protocolConfigPda,
     treasuryPda,
   );
-  rawAccData = readAcct(pdas.identityPda, iamAnchorAddr);
+  rawAccData = readAcct(pdas.identityPda, anchorAddr);
   identity = decodeIdentityPdaDev(rawAccData);
   expect(identity.creation_timestamp).to.equal(t0);
   expect(identity.last_verification_timestamp).to.equal(t0);
   expectTheSameArray(identity.recent_timestamps, defaultRecentTimestamps);
 });
 
-test("iamAnchor.authorizeNewWallet()", async () => {
-  console.log("\n----------------== iamAnchor.authorizeNewWallet()");
+test("entrosAnchor.authorizeNewWallet()", async () => {
+  console.log("\n----------------== entrosAnchor.authorizeNewWallet()");
   signerKp = adminKp;
   newWalletKp = user1Kp;
   pdas = pdasBySignerKp(signerKp); //{signer, identityPda, mintPda, nonce, challengePda, verificationPda }
@@ -155,7 +155,7 @@ test("iamAnchor.authorizeNewWallet()", async () => {
     pdas.mintPda,
     pdas.ata,
   );
-  rawAccData = readAcct(pdas.identityPda, iamAnchorAddr);
+  rawAccData = readAcct(pdas.identityPda, anchorAddr);
   identity = decodeIdentityPdaDev(rawAccData);
   identityOld = identity;
   acctEqual(identity.owner, signerKp.publicKey);
@@ -163,13 +163,13 @@ test("iamAnchor.authorizeNewWallet()", async () => {
   acctEqual(identity.new_wallet, newWalletKp.publicKey);
 });
 
-test("iamAnchor.migrateIdentity() by user1", async () => {
-  console.log("\n----------------== iamAnchor.migrateIdentity() by user1");
+test("entrosAnchor.migrateIdentity() by user1", async () => {
+  console.log("\n----------------== entrosAnchor.migrateIdentity() by user1");
   signerKp = user1Kp;
   pdas = pdasBySignerKp(signerKp);
   const pdasAdmin = pdasBySignerKp(adminKp);
 
-  console.log("iamAnchor:", iamAnchorAddr.toBase58());
+  console.log("entrosAnchor:", anchorAddr.toBase58());
   balcAtaCk(pdasAdmin.ata, one, "Mint_Old", 0);
   expireBlockhash();
   migrateIdentity(
@@ -187,7 +187,7 @@ test("iamAnchor.migrateIdentity() by user1", async () => {
     pdasAdmin.mintPda,
     pdasAdmin.ata,
   );
-  rawAccData = readAcct(pdas.identityPda, iamAnchorAddr);
+  rawAccData = readAcct(pdas.identityPda, anchorAddr);
   identity = decodeIdentityPdaDev(rawAccData);
   acctEqual(identity.owner, signerKp.publicKey);
 

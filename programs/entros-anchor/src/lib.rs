@@ -94,12 +94,7 @@ fn isqrt(n: u64) -> u64 {
 //const MINT_SIZE_WITH_NON_TRANSFERABLE: usize = 170;
 
 #[program]
-<<<<<<< HEAD:programs/iam-anchor/src/lib.rs
-pub mod iam_anchor {
-
-=======
 pub mod entros_anchor {
->>>>>>> upstream/develop:programs/entros-anchor/src/lib.rs
     use super::*;
 
     /// Mint a new Entros Anchor identity for the caller.
@@ -125,6 +120,7 @@ pub mod entros_anchor {
         // 1. Allocate mint account with space for NonTransferable extension
         let rent = Rent::get()?;
         let lamports = rent.minimum_balance(space);
+        #[cfg(feature = "debug-logs")]
         msg!("create_account");
         system_program::create_account(
             CpiContext::new_with_signer(
@@ -141,6 +137,7 @@ pub mod entros_anchor {
         )?;
 
         // 2. Initialize NonTransferable extension (MUST be before InitializeMint2)
+        #[cfg(feature = "debug-logs")]
         msg!("initialize_non_transferable_mint");
         let ix = spl_token_2022::instruction::initialize_non_transferable_mint(
             ctx.accounts.token_program.key,
@@ -148,6 +145,7 @@ pub mod entros_anchor {
         )?;
         anchor_lang::solana_program::program::invoke(&ix, &[ctx.accounts.mint.to_account_info()])?;
 
+        #[cfg(feature = "debug-logs")]
         msg!("initialize_close_authority");
         let ix = spl_token_2022::instruction::initialize_mint_close_authority(
             ctx.accounts.token_program.key,
@@ -157,6 +155,7 @@ pub mod entros_anchor {
         anchor_lang::solana_program::program::invoke(&ix, &[ctx.accounts.mint.to_account_info()])?;
         
         // 3. Initialize the mint (decimals=0, authority=mint_authority PDA)
+        #[cfg(feature = "debug-logs")]
         msg!("initialize_mint");
         let ix = spl_token_2022::instruction::initialize_mint2(
             ctx.accounts.token_program.key,
@@ -168,6 +167,7 @@ pub mod entros_anchor {
         anchor_lang::solana_program::program::invoke(&ix, &[ctx.accounts.mint.to_account_info()])?;
 
         // 4. Create the user's Associated Token Account
+        #[cfg(feature = "debug-logs")]
         msg!("create user ata");
         anchor_spl::associated_token::create(CpiContext::new(
             ctx.accounts.associated_token_program.to_account_info(),
@@ -182,6 +182,7 @@ pub mod entros_anchor {
         ))?;
 
         // 5. Mint exactly 1 token to the user's ATA
+        #[cfg(feature = "debug-logs")]
         msg!("mint 1 token");
         token_2022::mint_to(
             CpiContext::new_with_signer(
@@ -197,6 +198,7 @@ pub mod entros_anchor {
         )?;
 
         // 6. Initialize IdentityState PDA
+        #[cfg(feature = "debug-logs")]
         msg!("initialize IdentityState");
         let identity = &mut ctx.accounts.identity_state;
         let now = Clock::get()?.unix_timestamp;
@@ -261,7 +263,7 @@ pub mod entros_anchor {
         Ok(())
     }
 
-    /// Migrate from an user's old IAM Anchor IdentityState PDA to a new one
+    /// Migrate from an user's old Anchor IdentityState PDA to a new one
     /// After this function call, the orphaned 0-balance ATA, pointing at a closed mint, locks ~0.002 SOL of rent. This ATA can be recovered by the old wallet calling closeAccount()
     pub fn migrate_identity(ctx: Context<MigrateIdentity>) -> Result<()> {
         let user_key = ctx.accounts.user.key();
@@ -279,6 +281,7 @@ pub mod entros_anchor {
         let rent = Rent::get()?;
         let lamports = rent.minimum_balance(space);
 
+        #[cfg(feature = "debug-logs")]
         msg!("create_account");
         system_program::create_account(
             CpiContext::new_with_signer(
@@ -295,6 +298,7 @@ pub mod entros_anchor {
         )?;
 
         // 2. Initialize NonTransferable extension (MUST be before InitializeMint2)
+        #[cfg(feature = "debug-logs")]
         msg!("initialize_non_transferable");
         let ix = spl_token_2022::instruction::initialize_non_transferable_mint(
             ctx.accounts.token_program.key,
@@ -302,6 +306,7 @@ pub mod entros_anchor {
         )?;
         anchor_lang::solana_program::program::invoke(&ix, &[ctx.accounts.mint.to_account_info()])?;
         
+        #[cfg(feature = "debug-logs")]
         msg!("initialize_close_authority");
         let ix = spl_token_2022::instruction::initialize_mint_close_authority(
             ctx.accounts.token_program.key,
@@ -311,6 +316,7 @@ pub mod entros_anchor {
         anchor_lang::solana_program::program::invoke(&ix, &[ctx.accounts.mint.to_account_info()])?;
         
         // 3. Initialize the mint (decimals=0, authority=mint_authority PDA)
+        #[cfg(feature = "debug-logs")]
         msg!("initialize_mint");
         let ix = spl_token_2022::instruction::initialize_mint2(
             ctx.accounts.token_program.key,
@@ -353,7 +359,7 @@ pub mod entros_anchor {
         let identity_old = &ctx.accounts.identity_state_old;
         require!(
             identity_old.new_wallet == user_key,
-            IamAnchorError::UnauthorizedNewWallet
+            EntrosAnchorError::UnauthorizedNewWallet
         );
 
         identity.owner = ctx.accounts.user.key();
@@ -368,7 +374,7 @@ pub mod entros_anchor {
         identity.recent_timestamps = identity_old.recent_timestamps;
         identity.last_reset_timestamp = identity_old.last_reset_timestamp;
 
-        // Read verification fee from protocol config (cross-program, iam-registry)
+        // Read verification fee from protocol config (cross-program, entroRegistry)
         let config_data = ctx.accounts.protocol_config.try_borrow_data()?;
         let migration_fee = if config_data.len() >= 77 {
             u64::from_le_bytes([
@@ -404,6 +410,7 @@ pub mod entros_anchor {
         let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
         burn(cpi_ctx, 1)?;
         
+        #[cfg(feature = "debug-logs")]
         msg!("Close the old mint account");
         close_account(CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -843,8 +850,6 @@ pub struct AuthorizeNewWallet<'info> {
     #[account(mut)]
     pub signer_new: Signer<'info>,
 
-    /// CHECK: Created manually via CPI to support Token-2022 NonTransferable extension
-    /// initialization ordering. PDA seeds ensure uniqueness per user.
     pub token_program: Interface<'info, TokenInterface>,
     #[account(
         mut,

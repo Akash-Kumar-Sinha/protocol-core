@@ -16,8 +16,8 @@ import {
   TransactionMetadata,
 } from "litesvm";
 import {
+  anchorAddr,
   getPdas,
-  entrosAnchorAddr,
   loadProofFixture,
   numToBytes,
   registryAddr,
@@ -233,7 +233,7 @@ export const mintAnchor = (
   expectedErr = "",
 ) => {
   const disc = [68, 56, 113, 102, 236, 152, 146, 60]; //copied from Anchor IDL
-  const progAddr = entrosAnchorAddr;
+  const progAddr = anchorAddr;
   const argData = [...commitment];
   const blockhash = svm.latestBlockhash();
   const ix = new TransactionInstruction({
@@ -265,7 +265,7 @@ export const authorizeNewWallet = (
   expectedErr = "",
 ) => {
   const disc = [178, 186, 185, 108, 51, 219, 107, 197]; //copied from Anchor IDL
-  const progAddr = iamAnchorAddr;
+  const progAddr = anchorAddr;
   const blockhash = svm.latestBlockhash();
   const ix = new TransactionInstruction({
     keys: [
@@ -305,7 +305,7 @@ export const migrateIdentity = (
   expectedErr = "",
 ) => {
   const disc = [161, 192, 70, 80, 47, 37, 26, 10]; //copied from Anchor IDL
-  const progAddr = iamAnchorAddr;
+  const progAddr = anchorAddr;
   const blockhash = svm.latestBlockhash();
   const ix = new TransactionInstruction({
     keys: [
@@ -341,7 +341,7 @@ export const updateAnchor = (
   expectedErr = "",
 ) => {
   const disc = [120, 192, 72, 245, 112, 246, 119, 135]; //copied from Anchor IDL
-  const progAddr = entrosAnchorAddr;
+  const progAddr = anchorAddr;
   const new_commitment_array = Array.from(new_commitment);
   console.log("new_commitment_array:", new_commitment_array);
   const argData = [...new_commitment_array, ...verification_nonce];
@@ -370,7 +370,7 @@ export const resetIdentityState = (
   expectedErr = "",
 ) => {
   const disc = [26, 78, 86, 143, 247, 132, 85, 203]; //copied from Anchor IDL
-  const progAddr = entrosAnchorAddr;
+  const progAddr = anchorAddr;
   const argData = [...new_commitment];
   const blockhash = svm.latestBlockhash();
   const ix = new TransactionInstruction({
@@ -487,8 +487,8 @@ export const deployProgram = (
   //solana program dump progAddr pyth.so --url mainnet-beta
   svm.addProgramFromFile(programId, programPath);
 };
-deployProgram("target/deploy/entros_anchor.so", entrosAnchorAddr);
-acctExists(entrosAnchorAddr);
+deployProgram("target/deploy/entros_anchor.so", anchorAddr);
+acctExists(anchorAddr);
 deployProgram("target/deploy/entros_registry.so", registryAddr);
 acctExists(registryAddr);
 deployProgram("target/deploy/entros_verifier.so", verifierAddr);

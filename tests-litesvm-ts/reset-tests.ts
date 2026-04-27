@@ -7,10 +7,10 @@ import {
 import type { Keypair, PublicKey } from "@solana/web3.js";
 import { expect } from "chai";
 import {
+  anchorAddr,
   decodeIdentityPdaDev,
   deriveIdentityPda,
   deriveMintPda,
-  entrosAnchorAddr,
   mintAuthorityPda,
   protocolConfigPda,
   treasuryPda,
@@ -97,7 +97,7 @@ test("entrosAnchor.mintAnchor() to establish baseline", async () => {
     treasuryPda,
   );
 
-  const rawAccountData = readAcct(identityPda, entrosAnchorAddr);
+  const rawAccountData = readAcct(identityPda, anchorAddr);
   const decoded = decodeIdentityPdaDev(rawAccountData);
   acctEqual(decoded.owner, signer);
   expect(decoded.verification_count).to.equal(0);
@@ -124,7 +124,7 @@ test("entrosAnchor.resetIdentityState() happy path on fresh mint", async () => {
     treasuryPda,
   );
 
-  const rawAccountData = readAcct(identityPda, entrosAnchorAddr);
+  const rawAccountData = readAcct(identityPda, anchorAddr);
   const decoded = decodeIdentityPdaDev(rawAccountData);
 
   // Commitment rotated
@@ -160,7 +160,7 @@ test("entrosAnchor.resetIdentityState() fails while cooldown active", async () =
   );
 
   // Verify state did not mutate — commitment is still the first-reset value.
-  const rawAccountData = readAcct(identityPda, entrosAnchorAddr);
+  const rawAccountData = readAcct(identityPda, anchorAddr);
   const decoded = decodeIdentityPdaDev(rawAccountData);
   expect(Buffer.from(decoded.current_commitment)).to.deep.equal(
     resetCommitment,
@@ -184,7 +184,7 @@ test("entrosAnchor.resetIdentityState() succeeds after cooldown elapses", async 
     treasuryPda,
   );
 
-  const rawAccountData = readAcct(identityPda, entrosAnchorAddr);
+  const rawAccountData = readAcct(identityPda, anchorAddr);
   const decoded = decodeIdentityPdaDev(rawAccountData);
   expect(Buffer.from(decoded.current_commitment)).to.deep.equal(
     resetCommitment2,
@@ -212,7 +212,7 @@ test("entrosAnchor.resetIdentityState() rejects zero commitment", async () => {
   );
 
   // State still matches the prior successful reset.
-  const rawAccountData = readAcct(identityPda, entrosAnchorAddr);
+  const rawAccountData = readAcct(identityPda, anchorAddr);
   const decoded = decodeIdentityPdaDev(rawAccountData);
   expect(Buffer.from(decoded.current_commitment)).to.deep.equal(
     resetCommitment2,
