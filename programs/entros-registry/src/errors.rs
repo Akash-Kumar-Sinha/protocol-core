@@ -16,8 +16,8 @@ pub enum RegistryError {
     InsufficientTreasuryBalance,
     #[msg("ProgramData bytes malformed")]
     ProgramDataBytes,
-    #[msg("WrongUpgradeAuthority")]
+    #[msg("Caller is not the program upgrade authority")]
     WrongUpgradeAuthority,
-    #[msg("WrongUpgradeAuthority")]
+    #[msg("Protocol config bytes malformed")]
     InvalidProtocolConfig,
 }

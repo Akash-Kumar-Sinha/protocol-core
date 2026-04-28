@@ -461,7 +461,7 @@ test("registry.migrateAdmin() should fail by Wrong Upgrade Authority", async () 
     hackerKp, // a hacker tries to invoke this
     protocolConfigPda,
     programdataAddr,
-    "Error Code: WrongUpgradeAuthority. Error Number: 6007. Error Message: WrongUpgradeAuthority",
+    "Error Code: WrongUpgradeAuthority. Error Number: 6007. Error Message: Caller is not the program upgrade authority",
   );
 });
 
